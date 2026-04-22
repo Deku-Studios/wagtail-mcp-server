@@ -82,6 +82,7 @@ ignore = ["S101"]  # allow assert in tests
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
 DJANGO_SETTINGS_MODULE = "tests.settings"
 python_files = ["test_*.py"]
 asyncio_mode = "auto"

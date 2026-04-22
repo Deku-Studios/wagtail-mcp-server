@@ -9,8 +9,8 @@ name it cannot dispatch.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from importlib import import_module
-from typing import Callable
 
 from .settings import get_config
 

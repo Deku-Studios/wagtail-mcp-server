@@ -76,7 +76,9 @@ class StreamFieldValidationError(ValueError):
 
     def __init__(self, errors: list[StreamFieldError]) -> None:
         self.errors = errors
-        summary = "; ".join(f"{e.path}: {e.code} (expected {e.expected}, got {e.got})" for e in errors)
+        summary = "; ".join(
+            f"{e.path}: {e.code} (expected {e.expected}, got {e.got})" for e in errors
+        )
         super().__init__(f"StreamField validation failed: {summary}")
 
 

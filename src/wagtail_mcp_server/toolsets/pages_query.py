@@ -66,8 +66,6 @@ class PageQueryToolset:
         offset: int = 0,
     ) -> dict[str, Any]:
         """List pages under ``parent_id`` (or site root) with filters applied."""
-        from wagtail.models import Page
-
         qs = self._scoped_queryset(user)
         if parent_id is not None:
             parent = self._get_page_or_none(parent_id)

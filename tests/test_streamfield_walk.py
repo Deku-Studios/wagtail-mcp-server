@@ -16,7 +16,6 @@ from wagtail_mcp_server.serializers.streamfield import (
     serialize_streamfield,
 )
 
-
 # ---------------------------------------------------------------------------- helpers
 
 

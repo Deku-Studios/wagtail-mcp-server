@@ -215,6 +215,6 @@ def _to_json_safe(value: Any) -> Any:
     """Coerce datetimes and other common non-JSON types to JSON-friendly forms."""
     import datetime
 
-    if isinstance(value, (datetime.datetime, datetime.date)):
+    if isinstance(value, datetime.datetime | datetime.date):
         return value.isoformat()
     return value

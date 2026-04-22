@@ -71,7 +71,7 @@ class UserMcpToken(models.Model):
         return _hash_token(plaintext)
 
     @classmethod
-    def issue(cls, user, label: str) -> tuple["UserMcpToken", str]:
+    def issue(cls, user, label: str) -> tuple[UserMcpToken, str]:
         """Mint a new token. Returns ``(row, plaintext)``; plaintext is
         shown once and never persisted."""
         plaintext = secrets.token_urlsafe(32)
@@ -137,6 +137,9 @@ class ToolCall(models.Model):
             models.Index(fields=["toolset", "tool", "-created_at"]),
         ]
 
+    def __str__(self) -> str:  # pragma: no cover - trivial
+        return f"{self.toolset}.{self.tool} -> {self.outcome} ({self.latency_ms}ms)"
+
 
 class AgentScratchpad(models.Model):
     """Per-user, per-namespace scratchpad. Optional in v0.1."""
@@ -155,3 +158,6 @@ class AgentScratchpad(models.Model):
         unique_together: ClassVar = [("user", "namespace", "key")]
         verbose_name = "MCP agent scratchpad"
         verbose_name_plural = "MCP agent scratchpads"
+
+    def __str__(self) -> str:  # pragma: no cover - trivial
+        return f"{self.namespace}/{self.key} (user={self.user_id})"

@@ -117,13 +117,23 @@ def _block_value_schema(block: Any, defs: dict[str, Any]) -> dict[str, Any]:
         return {"type": "string"}
 
     if isinstance(block, ImageChooserBlock):
-        return _chooser_value_schema(extra_props={"width": {"type": "integer"}, "height": {"type": "integer"}})
+        return _chooser_value_schema(
+            extra_props={
+                "width": {"type": "integer"},
+                "height": {"type": "integer"},
+            }
+        )
 
     if isinstance(block, DocumentChooserBlock):
         return _chooser_value_schema()
 
     if isinstance(block, wagtail_blocks.PageChooserBlock):
-        return _chooser_value_schema(extra_props={"slug": {"type": "string"}, "url_path": {"type": "string"}})
+        return _chooser_value_schema(
+            extra_props={
+                "slug": {"type": "string"},
+                "url_path": {"type": "string"},
+            }
+        )
 
     if isinstance(block, wagtail_blocks.StructBlock):
         return _struct_value_schema(block, defs)
@@ -191,7 +201,10 @@ def _primitive_value_schema(block: Any) -> dict[str, Any]:
 
     if isinstance(block, wagtail_blocks.BooleanBlock):
         return {"type": "boolean"}
-    if isinstance(block, (wagtail_blocks.IntegerBlock, wagtail_blocks.FloatBlock, wagtail_blocks.DecimalBlock)):
+    if isinstance(
+        block,
+        wagtail_blocks.IntegerBlock | wagtail_blocks.FloatBlock | wagtail_blocks.DecimalBlock,
+    ):
         return {"type": "number"}
     if isinstance(block, wagtail_blocks.URLBlock):
         return {"type": "string", "format": "uri"}
@@ -226,7 +239,7 @@ def _scalar_field_schema(field: Any) -> dict[str, Any]:
 
     if isinstance(field, models.BooleanField):
         return {"type": "boolean"}
-    if isinstance(field, (models.IntegerField, models.AutoField)):
+    if isinstance(field, models.IntegerField | models.AutoField):
         return {"type": "integer"}
     if isinstance(field, models.FloatField):
         return {"type": "number"}
