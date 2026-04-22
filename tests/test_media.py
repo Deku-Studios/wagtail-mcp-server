@@ -36,7 +36,6 @@ from django.core.signing import TimestampSigner
 from wagtail_mcp_server.toolsets import media as media_module
 from wagtail_mcp_server.toolsets.media import MediaToolset
 
-
 # ------------------------------------------------------------------- fixtures
 
 

@@ -54,7 +54,8 @@ import hashlib
 import json
 import re
 import uuid
-from typing import Any, Iterable
+from collections.abc import Iterable
+from typing import Any
 
 from django.core.exceptions import PermissionDenied
 from django.core.files.storage import default_storage
@@ -91,7 +92,7 @@ _ALLOWED_DOCUMENT_CONTENT_TYPES: frozenset[str] = frozenset({
 
 # Signer for upload tokens. The salt is versioned so we can rotate without
 # invalidating in-flight uploads silently.
-_UPLOAD_TOKEN_SALT = "wagtail_mcp_server.media.upload_token:v1"
+_UPLOAD_TOKEN_SALT = "wagtail_mcp_server.media.upload_token:v1"  # noqa: S105 - signer salt, not a password
 
 # Tokens are issued alongside presigned PUT URLs. The presigned URL TTL
 # (5 min) limits how long the agent can upload for; the token max-age
@@ -688,7 +689,7 @@ def _read_image_metadata(
 
     with storage.open(key, "rb") as fh:
         data = fh.read()
-    sha1 = hashlib.sha1(data).hexdigest()
+    sha1 = hashlib.sha1(data, usedforsecurity=False).hexdigest()
     width: int | None = None
     height: int | None = None
     try:
@@ -703,7 +704,7 @@ def _read_image_metadata(
 
 def _hash_storage_object(storage: Any, *, key: str) -> str:
     """Return a sha1 hex digest of the object stored at ``key``."""
-    h = hashlib.sha1()
+    h = hashlib.sha1(usedforsecurity=False)
     with storage.open(key, "rb") as fh:
         for chunk in iter(lambda: fh.read(65536), b""):
             h.update(chunk)
@@ -755,7 +756,7 @@ def _permission_policy(model: Any) -> Any:
 
         if model is get_image_model():
             return image_policy
-    except Exception:
+    except Exception:  # noqa: S110, BLE001 - optional wagtail.images may not be installed
         pass
     try:
         from wagtail.documents import get_document_model
@@ -765,7 +766,7 @@ def _permission_policy(model: Any) -> Any:
 
         if model is get_document_model():
             return document_policy
-    except Exception:
+    except Exception:  # noqa: S110, BLE001 - optional wagtail.documents may not be installed
         pass
     return None
 
@@ -910,7 +911,7 @@ def _default_renditions(image: Any) -> list[dict[str, Any]]:
     for spec in specs:
         try:
             r = image.get_rendition(spec)
-        except Exception:
+        except Exception:  # noqa: S112, BLE001 - skip unrenderable sizes (e.g. SVG)
             continue
         out.append(
             {
