@@ -22,10 +22,10 @@ class WagtailMCPServerConfig(AppConfig):
         # Kept lazy so importing this app in ``INSTALLED_APPS`` does not
         # force Wagtail to load before Django is ready. The ``signals``
         # module only wires post-save/etc hooks; it has no side-effect
-        # on the MCP surface.
+        # on the MCP surface. ``get_config`` is pulled in here too so the
+        # validate-and-cache step surfaces config errors at boot, not on
+        # the first request.
         from . import signals  # noqa: F401
-        # Also validate + cache the config now so boot errors surface on
-        # startup rather than on the first request.
         from .settings import get_config
 
         get_config()
