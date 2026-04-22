@@ -22,7 +22,6 @@ from wagtail_mcp_server.toolsets.pages_write import (
     PageWriteToolset,
 )
 
-
 # ---------------------------------------------------------------------- fixtures
 
 
