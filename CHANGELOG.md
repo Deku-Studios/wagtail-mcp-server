@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-04-22
+
+### Added
+- **WorkflowToolset** (off by default): `workflow.submit`, `workflow.approve`, `workflow.reject`, `workflow.cancel`, `workflow.state`. Permission model delegates to Wagtail's `task.get_actions(page, user)` contract so custom Task subclasses (GroupApprovalTask and anything downstream projects register) work out of the box. Workflow actions are not gated by `LIMITS.ALLOW_DESTRUCTIVE` — reject and cancel are recoverable.
+- **MediaToolset** (off by default): `media.images.list/get/get_upload_url/finalize/update` and `media.documents.*` equivalents. Presign-then-finalize flow means bytes never touch Django — the agent PUTs direct to the S3-compatible bucket (Cloudflare R2 in the Lex deployment). Content-type allow-lists (image: jpeg/png/gif/webp/svg+xml; document: pdf/doc/xlsx/pptx/csv/txt/md/json) guard against script-in-svg and similar foot-guns. Upload tokens are `TimestampSigner`-signed JSON blobs bound to user, key, content_type, max_size, and kind; TTL 10 min. `get_upload_url` refuses non-S3-compatible default_storage (loud failure, not silent fallback to filesystem).
+- **SEOWriteToolset** (off by default): `seo.update` lets agents fix `seo_title`, `search_description`, `slug`, and `og_image` in one call, optionally publishing. Unknown fields raise before any DB mutation happens. Response carries post-write findings so the agent can verify the fix worked.
+- 26 new tests: 11 for WorkflowToolset (auth, no-workflow path, happy path + cancel + approve), 8 for SEOWriteToolset (happy path, validation, findings round-trip), 20 for MediaToolset (auth, read path, content-type gate, S3-compatibility gate, presign, token tampering). Full suite: 103 → 137, all green.
+
+### Changed
+- `registry.TOOLSET_MAP` and `AppConfig.ready` now load `WorkflowToolset`, `MediaToolset`, and `SEOWriteToolset` alongside the existing toolsets.
+
+### Notes for host projects
+- All three new toolsets are off by default. Opt in via `WAGTAIL_MCP_SERVER["TOOLSETS"][<name>]["enabled"] = True`.
+- `media` requires django-storages' `S3Storage` (or any storage that exposes a boto3-style `.connection` + `.bucket_name`). The toolset refuses to mint presigned URLs against `FileSystemStorage`.
+- No new migrations. Host projects upgrading from 0.2.0 need no DB changes.
+
 ## [0.2.0] - 2026-04-22
 
 ### Added
