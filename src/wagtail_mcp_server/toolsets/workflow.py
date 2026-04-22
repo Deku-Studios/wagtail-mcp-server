@@ -85,7 +85,7 @@ class WorkflowToolset:
         _require_authenticated(user)
 
         task_state = _get_task_state_or_404(task_state_id)
-        page = task_state.workflow_state.page.specific
+        page = _workflow_state_page(task_state.workflow_state)
         if not _can_moderate_task(user, task_state, page):
             raise PermissionDenied(
                 f"User lacks permission to approve task_state {task_state_id}."
@@ -112,7 +112,7 @@ class WorkflowToolset:
         _require_authenticated(user)
 
         task_state = _get_task_state_or_404(task_state_id)
-        page = task_state.workflow_state.page.specific
+        page = _workflow_state_page(task_state.workflow_state)
         if not _can_moderate_task(user, task_state, page):
             raise PermissionDenied(
                 f"User lacks permission to reject task_state {task_state_id}."
@@ -133,7 +133,7 @@ class WorkflowToolset:
         _require_authenticated(user)
 
         workflow_state = _get_workflow_state_or_404(workflow_state_id)
-        page = workflow_state.page.specific
+        page = _workflow_state_page(workflow_state)
         if not _can_submit(user, page):
             raise PermissionDenied(
                 f"User lacks permission to cancel workflow_state {workflow_state_id}."
@@ -258,11 +258,42 @@ def _can_moderate_task(user: Any, task_state: Any, page: Any) -> bool:
 # ------------------------------------------------------------- payload builders
 
 
+def _workflow_state_page(workflow_state: Any) -> Any:
+    """Return the Page this WorkflowState targets, ``.specific``-cast.
+
+    Wagtail 5.2+ replaced ``WorkflowState.page`` (direct FK) with a
+    generic ``content_object`` so snippets could participate in
+    workflows too. For Lex the target is always a Page, so we resolve
+    via ``Page.objects.get(pk=object_id)`` and cast to the concrete
+    subclass. Falls back to ``content_object.specific`` if the GFK
+    resolves to something other than a Page (e.g. a snippet).
+    """
+    from wagtail.models import Page
+
+    obj = workflow_state.content_object
+    if isinstance(obj, Page):
+        return obj.specific
+    # Workflow targets a non-Page snippet: the permission helpers below
+    # still expect a `.specific` shape, which snippets already satisfy.
+    return obj
+
+
+def _workflow_state_page_id(workflow_state: Any) -> int | None:
+    """Best-effort int cast of the workflow state's target object_id."""
+    raw = getattr(workflow_state, "object_id", None)
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
+
+
 def _workflow_state_payload(workflow_state: Any) -> dict[str, Any]:
     current_task_state = workflow_state.current_task_state
     return {
         "id": workflow_state.pk,
-        "page_id": workflow_state.page_id,
+        "page_id": _workflow_state_page_id(workflow_state),
         "workflow_id": workflow_state.workflow_id,
         "status": workflow_state.status,
         "created_at": _isoformat(workflow_state.created_at),

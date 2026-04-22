@@ -106,7 +106,19 @@ def test_workflow_state_returns_none_when_no_workflow(
 def test_workflow_submit_without_assignment_raises(
     toolset, superuser, stream_page
 ):
-    """Page with no assigned workflow and no explicit id -> ValueError."""
+    """Page with no assigned workflow and no explicit id -> ValueError.
+
+    Wagtail ships a data migration that creates a default "Moderators
+    approval" workflow assigned to the root page, which would otherwise
+    be picked up by ``page.get_workflow()``. Clear it for this test so
+    we can exercise the "no workflow anywhere" path.
+    """
+    from wagtail.models import Workflow, WorkflowContentType, WorkflowPage
+
+    WorkflowPage.objects.all().delete()
+    WorkflowContentType.objects.all().delete()
+    Workflow.objects.all().update(active=False)
+
     with pytest.raises(ValueError):
         toolset.workflow_submit(superuser, page_id=stream_page.pk)
 
