@@ -26,19 +26,24 @@ from __future__ import annotations
 from typing import Any
 
 from django.core.exceptions import PermissionDenied
+from mcp_server.djangomcp import MCPToolset
 
 
-class WorkflowToolset:
-    """django-mcp-server toolset for Wagtail moderation workflows."""
+class WorkflowToolset(MCPToolset):
+    """django-mcp-server toolset for Wagtail moderation workflows.
+
+    The caller is resolved from ``self.request.user`` on every call; the
+    request is populated by the DRF auth stack before the MCP dispatcher
+    instantiates this class.
+    """
 
     name = "workflow"
-    version = "0.3.0"
+    version = "0.4.0"
 
     # ---------------------------------------------------------------- workflow.submit
 
     def workflow_submit(
         self,
-        user: Any,
         *,
         page_id: int,
         workflow_id: int | None = None,
@@ -50,6 +55,7 @@ class WorkflowToolset:
         is used. If the page has no assigned workflow, a ``ValueError``
         is raised.
         """
+        user = getattr(self.request, "user", None)
         _require_authenticated(user)
 
         page = _get_page_or_404(page_id).specific
@@ -76,12 +82,12 @@ class WorkflowToolset:
 
     def workflow_approve(
         self,
-        user: Any,
         *,
         task_state_id: int,
         comment: str = "",
     ) -> dict[str, Any]:
         """Approve the current task of a workflow state."""
+        user = getattr(self.request, "user", None)
         _require_authenticated(user)
 
         task_state = _get_task_state_or_404(task_state_id)
@@ -98,7 +104,6 @@ class WorkflowToolset:
 
     def workflow_reject(
         self,
-        user: Any,
         *,
         task_state_id: int,
         comment: str = "",
@@ -109,6 +114,7 @@ class WorkflowToolset:
         (workflow state moves to ``needs_changes``). This is not a
         destructive op -- the draft is preserved.
         """
+        user = getattr(self.request, "user", None)
         _require_authenticated(user)
 
         task_state = _get_task_state_or_404(task_state_id)
@@ -125,11 +131,11 @@ class WorkflowToolset:
 
     def workflow_cancel(
         self,
-        user: Any,
         *,
         workflow_state_id: int,
     ) -> dict[str, Any]:
         """Cancel an in-flight workflow state."""
+        user = getattr(self.request, "user", None)
         _require_authenticated(user)
 
         workflow_state = _get_workflow_state_or_404(workflow_state_id)
@@ -146,7 +152,6 @@ class WorkflowToolset:
 
     def workflow_state(
         self,
-        user: Any,
         *,
         page_id: int,
     ) -> dict[str, Any] | None:
@@ -155,6 +160,7 @@ class WorkflowToolset:
         Read-only. Requires only that the caller can view the page
         (i.e. authenticated).
         """
+        user = getattr(self.request, "user", None)
         _require_authenticated(user)
 
         page = _get_page_or_404(page_id).specific

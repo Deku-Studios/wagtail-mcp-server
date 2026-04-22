@@ -29,6 +29,7 @@ from __future__ import annotations
 from typing import Any
 
 from django.core.exceptions import FieldDoesNotExist, PermissionDenied
+from mcp_server.djangomcp import MCPToolset
 
 from ..serializers.streamfield import (
     DeserializeOptions,
@@ -41,17 +42,19 @@ from ..settings import get_config
 MOVE_POSITIONS = ("first-child", "last-child", "left", "right")
 
 
-class PageWriteToolset:
-    """django-mcp-server toolset for page writes."""
+class PageWriteToolset(MCPToolset):
+    """django-mcp-server toolset for page writes.
+
+    The caller is resolved from ``self.request.user`` on every call.
+    """
 
     name = "pages_write"
-    version = "0.2.0"
+    version = "0.4.0"
 
     # ------------------------------------------------------------------ pages.create
 
     def pages_create(
         self,
-        user: Any,
         *,
         type: str,
         parent_id: int,
@@ -69,6 +72,7 @@ class PageWriteToolset:
         this is a separate permission (``publish_page``) from the create
         permission (``add_page``).
         """
+        user = getattr(self.request, "user", None)
         _require_authenticated(user)
 
         parent = self._get_page_or_404(parent_id)
@@ -104,13 +108,13 @@ class PageWriteToolset:
 
     def pages_update(
         self,
-        user: Any,
         *,
         id: int,
         fields: dict[str, Any] | None = None,
         publish: bool = False,
     ) -> dict[str, Any]:
         """Update a page's field values and save a new revision."""
+        user = getattr(self.request, "user", None)
         _require_authenticated(user)
 
         page = self._get_page_or_404(id).specific
@@ -137,12 +141,12 @@ class PageWriteToolset:
 
     def pages_publish(
         self,
-        user: Any,
         *,
         id: int,
         revision_id: int | None = None,
     ) -> dict[str, Any]:
         """Publish a revision. Defaults to the latest revision."""
+        user = getattr(self.request, "user", None)
         _require_authenticated(user)
 
         page = self._get_page_or_404(id).specific
@@ -166,11 +170,11 @@ class PageWriteToolset:
 
     def pages_unpublish(
         self,
-        user: Any,
         *,
         id: int,
     ) -> dict[str, Any]:
         """Unpublish a live page."""
+        user = getattr(self.request, "user", None)
         _require_authenticated(user)
 
         page = self._get_page_or_404(id).specific
@@ -185,11 +189,11 @@ class PageWriteToolset:
 
     def pages_delete(
         self,
-        user: Any,
         *,
         id: int,
     ) -> dict[str, Any]:
         """Delete a page. Three-gate: destructive + permission + toolset flag."""
+        user = getattr(self.request, "user", None)
         _require_authenticated(user)
         _require_destructive_gate("pages.delete")
 
@@ -205,7 +209,6 @@ class PageWriteToolset:
 
     def pages_move(
         self,
-        user: Any,
         *,
         id: int,
         parent_id: int,
@@ -216,6 +219,7 @@ class PageWriteToolset:
         ``position`` is one of :data:`MOVE_POSITIONS` and is passed through
         to Treebeard's ``move()`` unchanged.
         """
+        user = getattr(self.request, "user", None)
         _require_authenticated(user)
 
         if position not in MOVE_POSITIONS:

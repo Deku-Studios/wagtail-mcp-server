@@ -25,6 +25,7 @@ from __future__ import annotations
 from typing import Any
 
 from django.core.exceptions import PermissionDenied
+from mcp_server.djangomcp import MCPToolset
 
 from .pages_write import (
     _can_edit,
@@ -46,17 +47,23 @@ SEO_FIELDS: tuple[str, ...] = (
 )
 
 
-class SEOWriteToolset:
-    """django-mcp-server toolset for mutating SEO fields on a page."""
+class SEOWriteToolset(MCPToolset):
+    """django-mcp-server toolset for mutating SEO fields on a page.
+
+    The caller is resolved from ``self.request.user`` (populated by
+    :class:`wagtail_mcp_server.auth.UserTokenDRFAuth` on HTTP, or by the
+    stdio bootstrap on local runs). Every tool method is published as an
+    MCP tool by ``ToolsetMeta``; helper methods are underscore-prefixed
+    so they stay off the wire.
+    """
 
     name = "seo_write"
-    version = "0.3.0"
+    version = "0.4.0"
 
     # ------------------------------------------------------------------ seo.update
 
     def seo_update(
         self,
-        user: Any,
         *,
         id: int,
         fields: dict[str, Any],
@@ -73,6 +80,7 @@ class SEOWriteToolset:
         target: an ``int`` pk, ``{"_raw_id": int}``, or an already-resolved
         Image instance.
         """
+        user = getattr(self.request, "user", None)
         _require_authenticated(user)
 
         if not fields:

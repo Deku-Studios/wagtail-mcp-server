@@ -60,6 +60,7 @@ from typing import Any
 from django.core.exceptions import PermissionDenied
 from django.core.files.storage import default_storage
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
+from mcp_server.djangomcp import MCPToolset
 
 from ..settings import get_config
 
@@ -104,17 +105,19 @@ _TOKEN_MAX_AGE_SECONDS = 600
 _SAFE_FILENAME_RE = re.compile(r"[^A-Za-z0-9._-]+")
 
 
-class MediaToolset:
-    """django-mcp-server toolset for images and documents."""
+class MediaToolset(MCPToolset):
+    """django-mcp-server toolset for images and documents.
+
+    The caller is resolved from ``self.request.user`` on every call.
+    """
 
     name = "media"
-    version = "0.3.0"
+    version = "0.4.0"
 
     # ============================================================ images
 
     def media_images_list(
         self,
-        user: Any,
         *,
         collection_id: int | None = None,
         tag: str | None = None,
@@ -122,6 +125,7 @@ class MediaToolset:
         page_size: int | None = None,
     ) -> dict[str, Any]:
         """List images, optionally filtered by collection and/or tag."""
+        user = getattr(self.request, "user", None)
         _require_authenticated(user)
 
         from wagtail.images import get_image_model
@@ -135,8 +139,9 @@ class MediaToolset:
 
         return _paginate(qs, page, page_size, serializer=_serialize_image)
 
-    def media_images_get(self, user: Any, *, id: int) -> dict[str, Any]:
+    def media_images_get(self, *, id: int) -> dict[str, Any]:
         """Return the full payload for one image."""
+        user = getattr(self.request, "user", None)
         _require_authenticated(user)
 
         from wagtail.images import get_image_model
@@ -150,7 +155,6 @@ class MediaToolset:
 
     def media_images_get_upload_url(
         self,
-        user: Any,
         *,
         filename: str,
         content_type: str,
@@ -163,6 +167,7 @@ class MediaToolset:
         header set to ``content_type``, then calls
         :meth:`media_images_finalize` with the returned ``upload_token``.
         """
+        user = getattr(self.request, "user", None)
         _require_authenticated(user)
         _require_content_type(content_type, _ALLOWED_IMAGE_CONTENT_TYPES, kind="image")
         max_bytes = _max_upload_bytes()
@@ -205,7 +210,6 @@ class MediaToolset:
 
     def media_images_finalize(
         self,
-        user: Any,
         *,
         upload_token: str,
         title: str,
@@ -215,6 +219,7 @@ class MediaToolset:
         focal_point: dict[str, int] | None = None,
     ) -> dict[str, Any]:
         """Register a direct-to-storage upload as a Wagtail Image."""
+        user = getattr(self.request, "user", None)
         _require_authenticated(user)
 
         payload = _verify_upload_token(
@@ -270,7 +275,6 @@ class MediaToolset:
 
     def media_images_update(
         self,
-        user: Any,
         *,
         id: int,
         title: str | None = None,
@@ -280,6 +284,7 @@ class MediaToolset:
         focal_point: dict[str, int] | None = None,
     ) -> dict[str, Any]:
         """Update image metadata without touching the underlying bytes."""
+        user = getattr(self.request, "user", None)
         _require_authenticated(user)
 
         from wagtail.images import get_image_model
@@ -318,7 +323,6 @@ class MediaToolset:
 
     def media_documents_list(
         self,
-        user: Any,
         *,
         collection_id: int | None = None,
         tag: str | None = None,
@@ -326,6 +330,7 @@ class MediaToolset:
         page_size: int | None = None,
     ) -> dict[str, Any]:
         """List documents, optionally filtered by collection and/or tag."""
+        user = getattr(self.request, "user", None)
         _require_authenticated(user)
 
         from wagtail.documents import get_document_model
@@ -339,8 +344,9 @@ class MediaToolset:
 
         return _paginate(qs, page, page_size, serializer=_serialize_document)
 
-    def media_documents_get(self, user: Any, *, id: int) -> dict[str, Any]:
+    def media_documents_get(self, *, id: int) -> dict[str, Any]:
         """Return the full payload for one document."""
+        user = getattr(self.request, "user", None)
         _require_authenticated(user)
 
         from wagtail.documents import get_document_model
@@ -354,7 +360,6 @@ class MediaToolset:
 
     def media_documents_get_upload_url(
         self,
-        user: Any,
         *,
         filename: str,
         content_type: str,
@@ -362,6 +367,7 @@ class MediaToolset:
         size_bytes: int | None = None,
     ) -> dict[str, Any]:
         """Mint a presigned PUT URL for uploading a document direct to storage."""
+        user = getattr(self.request, "user", None)
         _require_authenticated(user)
         _require_content_type(
             content_type, _ALLOWED_DOCUMENT_CONTENT_TYPES, kind="document"
@@ -406,7 +412,6 @@ class MediaToolset:
 
     def media_documents_finalize(
         self,
-        user: Any,
         *,
         upload_token: str,
         title: str,
@@ -414,6 +419,7 @@ class MediaToolset:
         tags: list[str] | None = None,
     ) -> dict[str, Any]:
         """Register a direct-to-storage upload as a Wagtail Document."""
+        user = getattr(self.request, "user", None)
         _require_authenticated(user)
 
         payload = _verify_upload_token(
@@ -454,7 +460,6 @@ class MediaToolset:
 
     def media_documents_update(
         self,
-        user: Any,
         *,
         id: int,
         title: str | None = None,
@@ -462,6 +467,7 @@ class MediaToolset:
         tags: list[str] | None = None,
     ) -> dict[str, Any]:
         """Update document metadata."""
+        user = getattr(self.request, "user", None)
         _require_authenticated(user)
 
         from wagtail.documents import get_document_model

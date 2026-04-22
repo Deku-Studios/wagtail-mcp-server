@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from io import BytesIO
+from types import SimpleNamespace
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -83,3 +84,28 @@ def staff_user(db):
         password="x",  # noqa: S106
         is_staff=True,
     )
+
+
+@pytest.fixture
+def bind_user():
+    """Bind a user to a toolset instance and return the instance.
+
+    Toolsets subclass ``mcp_server.djangomcp.MCPToolset`` and resolve the
+    caller from ``self.request.user`` on every method. In production,
+    :class:`wagtail_mcp_server.auth.UserTokenDRFAuth` populates
+    ``request.user`` before MCP dispatch. Tests bypass the HTTP layer
+    and bind a minimal request-like object directly -- a
+    ``types.SimpleNamespace(user=user)`` matches what the toolsets need
+    (they only read ``self.request.user``) without dragging
+    ``RequestFactory`` into every test.
+
+    Pass ``user=None`` to simulate an unauthenticated caller; the
+    toolsets' ``_require_authenticated`` treats ``None`` and Django's
+    ``AnonymousUser`` the same.
+    """
+
+    def _bind(toolset_instance, user):
+        toolset_instance.request = SimpleNamespace(user=user)
+        return toolset_instance
+
+    return _bind

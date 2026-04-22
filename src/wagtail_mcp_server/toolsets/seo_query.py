@@ -31,6 +31,8 @@ from __future__ import annotations
 
 from typing import Any, ClassVar
 
+from mcp_server.djangomcp import MCPToolset
+
 from ..serializers.image import serialize_image
 from ..serializers.page_ref import serialize_page_ref
 
@@ -49,17 +51,14 @@ SEVERITY_WARN = "warn"
 SEVERITY_ERROR = "error"
 
 
-class SEOQueryToolset:
+class SEOQueryToolset(MCPToolset):
     """django-mcp-server toolset for SEO reads.
 
-    Handlers are pure-Python for v0.2, following the same "no decorator,
-    testable in isolation" pattern as :class:`PageQueryToolset`. The
-    ``django-mcp-server`` ``@tool`` wrapper lands alongside transport
-    wiring when the end-to-end stdio/HTTP path is ready.
+    The caller is resolved from ``self.request.user`` on every call.
     """
 
     name = "seo_query"
-    version = "0.2.0"
+    version = "0.4.0"
 
     #: Canonical rule ``(code, severity)`` pairs. Stable contract.
     RULES: ClassVar[dict[str, str]] = {
@@ -76,7 +75,6 @@ class SEOQueryToolset:
 
     def seo_get(
         self,
-        user: Any,
         *,
         id: int | None = None,
         slug: str | None = None,
@@ -86,11 +84,12 @@ class SEOQueryToolset:
 
         Exactly one of ``id``, ``slug``, ``url_path`` must be provided.
         Returns ``None`` if the page does not exist or is not visible to
-        ``user``.
+        the authenticated caller.
         """
         if id is None and slug is None and url_path is None:
             raise ValueError("seo.get requires one of: id, slug, url_path")
 
+        user = getattr(self.request, "user", None)
         page = self._find_page(user, id=id, slug=slug, url_path=url_path)
         if page is None:
             return None
@@ -100,19 +99,19 @@ class SEOQueryToolset:
 
     def seo_audit(
         self,
-        user: Any,
         *,
         limit: int = 100,
         offset: int = 0,
         min_severity: str | None = None,
         type: str | None = None,
     ) -> dict[str, Any]:
-        """Walk every page this user can see, returning those with findings.
+        """Walk every page the caller can see, returning those with findings.
 
         ``min_severity`` filters findings at or above the given severity
         (``"info" < "warn" < "error"``). ``type`` restricts the scan to a
         single ``app_label.ClassName``.
         """
+        user = getattr(self.request, "user", None)
         qs = self._scoped_queryset(user).live()
         if type:
             model = _resolve_page_model(type)
@@ -151,11 +150,10 @@ class SEOQueryToolset:
 
     def seo_sitemap(
         self,
-        user: Any,
         *,
         limit: int = 1000,
     ) -> dict[str, Any]:
-        """Return a sitemap-style list of live URLs visible to ``user``.
+        """Return a sitemap-style list of live URLs visible to the caller.
 
         Intentionally lightweight: deliberately does not reach for
         ``wagtail.contrib.sitemaps`` so the toolset is usable on projects
@@ -163,6 +161,7 @@ class SEOQueryToolset:
         ``loc``, ``lastmod`` (``last_published_at``), and a ``page``
         reference for drill-down.
         """
+        user = getattr(self.request, "user", None)
         limit = max(0, min(int(limit), 10_000))
         qs = self._scoped_queryset(user).live().order_by("path")[:limit]
 

@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-04-22
+
+### Added
+- **HTTP transport wiring**. `wagtail_mcp_server.urls` now publishes `MCPServerStreamableHttpView` at the empty path so host projects mount it with `path("mcp/", include("wagtail_mcp_server.urls"))`. A new `UserTokenDRFAuth` adapter (`wagtail_mcp_server.auth.UserTokenDRFAuth`) implements the DRF `BaseAuthentication` contract, delegates to the existing `UserTokenAuth` backend, and populates `request.user` before the MCP dispatcher captures the request. Auth class resolution reads `WAGTAIL_MCP_SERVER_AUTH_CLASSES` first, then `DJANGO_MCP_AUTHENTICATION_CLASSES`, and defaults to `UserTokenDRFAuth`. Missing Authorization header returns 401 with a `WWW-Authenticate: Bearer realm="wagtail-mcp-server"` prompt.
+- **Config-gated autodiscover**. `wagtail_mcp_server.mcp` is the new entry point consumed by django-mcp-server's `autodiscover_modules('mcp')` pass. The module imports toolsets conditionally on `WAGTAIL_MCP_SERVER.TOOLSETS[<slug>].enabled`, so disabled toolsets never trigger `ToolsetMeta` registration and never leak onto the MCP wire. A broken toolset module is logged and skipped rather than taking the whole surface down. The frozen list of loaded slugs is surfaced via `registry.loaded_toolsets()`.
+- **HTTP endpoint smoke tests** (`tests/test_http_endpoint.py`): 4 tests covering no-auth, GET with no auth, bogus bearer token (exercises the full `UserTokenDRFAuth` -> `UserTokenAuth` -> `UserMcpToken` lookup path), and non-Bearer schemes. Full tools/list round-trip with a seeded token is intentionally deferred to 0.5.0.
+
+### Changed
+- **Toolsets now inherit directly from `mcp_server.djangomcp.MCPToolset`** instead of going through an in-tree adapter. Tools resolve the caller from `self.request.user` (populated by DRF auth) rather than taking an explicit `user` positional argument. The adapter layer is gone; there is one class hierarchy, one source of truth for registration.
+- **Test suite rewritten** for the new toolset constructor contract. A `bind_user` fixture attaches a `SimpleNamespace(user=user)` stand-in to `toolset.request` before each call, bypassing the HTTP layer while faithfully matching what the DRF auth class populates in production. 149 -> 155 tests, all green.
+- `registry.TOOLSET_MAP` now re-exports the mapping defined in `wagtail_mcp_server.mcp` so existing operator imports keep working; `registry.loaded_toolsets()` is the supported way to introspect what actually went live.
+
+### Notes for host projects
+- **Action required**: host projects that previously included `mcp_server.urls` or `wagtail_mcp_server.urls` under a `mcp/` prefix should keep the same URL but rely on this library's `urls.py` (not upstream's). `mcp_server.urls` hard-codes an additional `DJANGO_MCP_ENDPOINT` prefix and would resolve the view at `/mcp/mcp/` under a canonical `/mcp/` mount. This library intentionally does not include upstream's urlconf.
+- Auth resolution prefers `WAGTAIL_MCP_SERVER_AUTH_CLASSES` over `DJANGO_MCP_AUTHENTICATION_CLASSES` so hosts can layer project-specific auth classes without touching the upstream setting. Setting either to an empty list disables auth; do this only for local dev.
+- No new migrations. Upgrading from 0.3.0 requires no DB changes.
+
 ## [0.3.0] - 2026-04-22
 
 ### Added

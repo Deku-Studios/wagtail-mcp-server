@@ -2,18 +2,18 @@
 
 Coverage map:
 
-    1. Auth gate — anonymous user raises ``PermissionDenied`` on every
+    1. Auth gate -- anonymous user raises ``PermissionDenied`` on every
        method.
-    2. Read path — ``media.images.list`` / ``media.images.get`` work
+    2. Read path -- ``media.images.list`` / ``media.images.get`` work
        against the real fixtures from ``conftest.py``.
-    3. Content-type gate — ``get_upload_url`` rejects disallowed types.
-    4. S3-compatibility gate — ``get_upload_url`` refuses the default
+    3. Content-type gate -- ``get_upload_url`` rejects disallowed types.
+    4. S3-compatibility gate -- ``get_upload_url`` refuses the default
        filesystem storage (it has no boto3 ``connection``).
-    5. Presign happy path — with a fake S3-compatible storage, the agent
+    5. Presign happy path -- with a fake S3-compatible storage, the agent
        gets back an upload URL and an upload token.
-    6. Token round-trip — ``finalize`` verifies the signed token, HEADs
+    6. Token round-trip -- ``finalize`` verifies the signed token, HEADs
        the fake object, and creates a Wagtail Image row.
-    7. Token tampering — a token from another user raises
+    7. Token tampering -- a token from another user raises
        ``PermissionDenied``; an ``image`` token cannot finalize a
        document upload.
 
@@ -22,6 +22,8 @@ The S3 backend is not mocked via ``unittest.mock``; instead we monkeypatch
 that matches django-storages' ``S3Storage`` surface just enough for the
 toolset's needs. This keeps the tests fast and avoids a runtime dep on
 ``moto`` or a live MinIO.
+
+Toolset instances are bound to a user via ``bind_user`` (see conftest).
 """
 
 from __future__ import annotations
@@ -134,37 +136,41 @@ def fake_s3(monkeypatch) -> _FakeS3Storage:
 
 
 @pytest.mark.django_db
-def test_media_list_rejects_anonymous(toolset):
+def test_media_list_rejects_anonymous(toolset, bind_user):
     with pytest.raises(PermissionDenied):
-        toolset.media_images_list(None)
+        bind_user(toolset, None).media_images_list()
 
 
 @pytest.mark.django_db
-def test_media_get_rejects_anonymous(toolset):
+def test_media_get_rejects_anonymous(toolset, bind_user):
     with pytest.raises(PermissionDenied):
-        toolset.media_images_get(None, id=1)
+        bind_user(toolset, None).media_images_get(id=1)
 
 
 @pytest.mark.django_db
-def test_media_upload_url_rejects_anonymous(toolset):
+def test_media_upload_url_rejects_anonymous(toolset, bind_user):
     with pytest.raises(PermissionDenied):
-        toolset.media_images_get_upload_url(
-            None, filename="x.png", content_type="image/png"
+        bind_user(toolset, None).media_images_get_upload_url(
+            filename="x.png", content_type="image/png"
         )
 
 
 @pytest.mark.django_db
-def test_media_finalize_rejects_anonymous(toolset):
+def test_media_finalize_rejects_anonymous(toolset, bind_user):
     with pytest.raises(PermissionDenied):
-        toolset.media_images_finalize(None, upload_token="nope", title="x")
+        bind_user(toolset, None).media_images_finalize(
+            upload_token="nope", title="x"
+        )
 
 
 # --------------------------------------------------------------------- read path
 
 
 @pytest.mark.django_db
-def test_images_list_returns_paginated_shape(toolset, superuser, image_obj):
-    result = toolset.media_images_list(superuser, page_size=10)
+def test_images_list_returns_paginated_shape(
+    toolset, bind_user, superuser, image_obj
+):
+    result = bind_user(toolset, superuser).media_images_list(page_size=10)
     assert result["total"] >= 1
     assert result["page"] == 1
     ids = [r["id"] for r in result["results"]]
@@ -172,8 +178,10 @@ def test_images_list_returns_paginated_shape(toolset, superuser, image_obj):
 
 
 @pytest.mark.django_db
-def test_images_get_returns_full_payload(toolset, superuser, image_obj):
-    payload = toolset.media_images_get(superuser, id=image_obj.pk)
+def test_images_get_returns_full_payload(
+    toolset, bind_user, superuser, image_obj
+):
+    payload = bind_user(toolset, superuser).media_images_get(id=image_obj.pk)
     assert payload["id"] == image_obj.pk
     assert payload["title"] == "Cover"
     # Width/height are 1x1 from the tiny PNG fixture.
@@ -186,17 +194,18 @@ def test_images_get_returns_full_payload(toolset, superuser, image_obj):
 
 
 @pytest.mark.django_db
-def test_images_get_missing_raises(toolset, superuser):
+def test_images_get_missing_raises(toolset, bind_user, superuser):
     with pytest.raises(ValueError):
-        toolset.media_images_get(superuser, id=999_999)
+        bind_user(toolset, superuser).media_images_get(id=999_999)
 
 
 @pytest.mark.django_db
-def test_documents_list_and_get(toolset, superuser, document_obj):
-    listed = toolset.media_documents_list(superuser)
+def test_documents_list_and_get(toolset, bind_user, superuser, document_obj):
+    bound = bind_user(toolset, superuser)
+    listed = bound.media_documents_list()
     assert listed["total"] >= 1
 
-    payload = toolset.media_documents_get(superuser, id=document_obj.pk)
+    payload = bound.media_documents_get(id=document_obj.pk)
     assert payload["id"] == document_obj.pk
     assert payload["title"] == "Whitepaper"
 
@@ -205,10 +214,9 @@ def test_documents_list_and_get(toolset, superuser, document_obj):
 
 
 @pytest.mark.django_db
-def test_upload_url_rejects_disallowed_image_type(toolset, superuser):
+def test_upload_url_rejects_disallowed_image_type(toolset, bind_user, superuser):
     with pytest.raises(ValueError) as excinfo:
-        toolset.media_images_get_upload_url(
-            superuser,
+        bind_user(toolset, superuser).media_images_get_upload_url(
             filename="payload.exe",
             content_type="application/x-msdownload",
         )
@@ -216,11 +224,12 @@ def test_upload_url_rejects_disallowed_image_type(toolset, superuser):
 
 
 @pytest.mark.django_db
-def test_upload_url_rejects_oversize_declared(toolset, superuser, fake_s3):
+def test_upload_url_rejects_oversize_declared(
+    toolset, bind_user, superuser, fake_s3
+):
     # 10 GB, way above the 25 MB default cap.
     with pytest.raises(ValueError) as excinfo:
-        toolset.media_images_get_upload_url(
-            superuser,
+        bind_user(toolset, superuser).media_images_get_upload_url(
             filename="huge.png",
             content_type="image/png",
             size_bytes=10 * 1024 ** 3,
@@ -232,15 +241,15 @@ def test_upload_url_rejects_oversize_declared(toolset, superuser, fake_s3):
 
 
 @pytest.mark.django_db
-def test_upload_url_refuses_filesystem_storage(toolset, superuser):
+def test_upload_url_refuses_filesystem_storage(toolset, bind_user, superuser):
     """No boto3 ``connection`` attr -> RuntimeError.
 
     This is the default pytest storage (FileSystemStorage). The toolset
     fails loud rather than silently mint URLs that point nowhere.
     """
     with pytest.raises(RuntimeError) as excinfo:
-        toolset.media_images_get_upload_url(
-            superuser, filename="ok.png", content_type="image/png"
+        bind_user(toolset, superuser).media_images_get_upload_url(
+            filename="ok.png", content_type="image/png"
         )
     assert "S3-compatible" in str(excinfo.value)
 
@@ -250,10 +259,10 @@ def test_upload_url_refuses_filesystem_storage(toolset, superuser):
 
 @pytest.mark.django_db
 def test_get_upload_url_returns_presigned_and_token(
-    toolset, superuser, fake_s3
+    toolset, bind_user, superuser, fake_s3
 ):
-    payload = toolset.media_images_get_upload_url(
-        superuser, filename="hero.png", content_type="image/png"
+    payload = bind_user(toolset, superuser).media_images_get_upload_url(
+        filename="hero.png", content_type="image/png"
     )
     assert payload["upload_url"].startswith("https://fake.r2/lex-assets/")
     assert "hero.png" in payload["key"]
@@ -266,16 +275,17 @@ def test_get_upload_url_returns_presigned_and_token(
 
 
 @pytest.mark.django_db
-def test_get_upload_url_sanitizes_filename(toolset, superuser, fake_s3):
-    payload = toolset.media_images_get_upload_url(
-        superuser,
+def test_get_upload_url_sanitizes_filename(
+    toolset, bind_user, superuser, fake_s3
+):
+    payload = bind_user(toolset, superuser).media_images_get_upload_url(
         filename="../../etc/passwd?evil=1.png",
         content_type="image/png",
     )
     # The key is structured as ``<upload_to>/<uuid>-<safe_name>``. The
     # upload_to prefix is the one-and-only ``/`` we expect; the dangerous
     # path separators and querystring characters in the user-supplied
-    # filename must be scrubbed. ``..`` itself is allowed — S3 keys are
+    # filename must be scrubbed. ``..`` itself is allowed -- S3 keys are
     # opaque strings, not filesystem paths.
     _, _, safe_name_part = payload["key"].partition("/")
     assert "/" not in safe_name_part
@@ -290,15 +300,17 @@ def test_get_upload_url_sanitizes_filename(toolset, superuser, fake_s3):
 
 
 @pytest.mark.django_db
-def test_finalize_creates_wagtail_image(toolset, superuser, fake_s3):
-    presign = toolset.media_images_get_upload_url(
-        superuser, filename="final.png", content_type="image/png"
+def test_finalize_creates_wagtail_image(
+    toolset, bind_user, superuser, fake_s3
+):
+    bound = bind_user(toolset, superuser)
+    presign = bound.media_images_get_upload_url(
+        filename="final.png", content_type="image/png"
     )
     # Simulate the agent uploading bytes direct to R2.
     fake_s3.put(presign["key"], _TINY_PNG)
 
-    payload = toolset.media_images_finalize(
-        superuser,
+    payload = bound.media_images_finalize(
         upload_token=presign["upload_token"],
         title="Final image",
         alt_text="A tiny PNG",
@@ -321,14 +333,14 @@ def test_finalize_creates_wagtail_image(toolset, superuser, fake_s3):
 
 
 @pytest.mark.django_db
-def test_finalize_before_put_raises(toolset, superuser, fake_s3):
+def test_finalize_before_put_raises(toolset, bind_user, superuser, fake_s3):
     """Agent calls finalize before uploading -> ValueError, no row created."""
-    presign = toolset.media_images_get_upload_url(
-        superuser, filename="missing.png", content_type="image/png"
+    bound = bind_user(toolset, superuser)
+    presign = bound.media_images_get_upload_url(
+        filename="missing.png", content_type="image/png"
     )
     with pytest.raises(ValueError) as excinfo:
-        toolset.media_images_finalize(
-            superuser,
+        bound.media_images_finalize(
             upload_token=presign["upload_token"],
             title="Never uploaded",
         )
@@ -341,15 +353,15 @@ def test_finalize_before_put_raises(toolset, superuser, fake_s3):
 
 @pytest.mark.django_db
 def test_finalize_rejects_token_from_another_user(
-    toolset, superuser, other_user, fake_s3
+    toolset, bind_user, superuser, other_user, fake_s3
 ):
-    presign = toolset.media_images_get_upload_url(
-        superuser, filename="stolen.png", content_type="image/png"
+    presign = bind_user(toolset, superuser).media_images_get_upload_url(
+        filename="stolen.png", content_type="image/png"
     )
     fake_s3.put(presign["key"], _TINY_PNG)
     with pytest.raises(PermissionDenied):
-        toolset.media_images_finalize(
-            other_user,
+        # Different user instance binds to the same toolset.
+        bind_user(toolset, other_user).media_images_finalize(
             upload_token=presign["upload_token"],
             title="Not yours",
         )
@@ -357,43 +369,44 @@ def test_finalize_rejects_token_from_another_user(
 
 @pytest.mark.django_db
 def test_finalize_rejects_image_token_for_document(
-    toolset, superuser, fake_s3
+    toolset, bind_user, superuser, fake_s3
 ):
     """An image upload token cannot finalize a document (kind mismatch)."""
-    presign = toolset.media_images_get_upload_url(
-        superuser, filename="mismatch.png", content_type="image/png"
+    bound = bind_user(toolset, superuser)
+    presign = bound.media_images_get_upload_url(
+        filename="mismatch.png", content_type="image/png"
     )
     fake_s3.put(presign["key"], _TINY_PNG)
     with pytest.raises(PermissionDenied):
-        toolset.media_documents_finalize(
-            superuser,
+        bound.media_documents_finalize(
             upload_token=presign["upload_token"],
             title="Wrong kind",
         )
 
 
 @pytest.mark.django_db
-def test_finalize_rejects_tampered_token(toolset, superuser, fake_s3):
-    presign = toolset.media_images_get_upload_url(
-        superuser, filename="tampered.png", content_type="image/png"
+def test_finalize_rejects_tampered_token(
+    toolset, bind_user, superuser, fake_s3
+):
+    bound = bind_user(toolset, superuser)
+    presign = bound.media_images_get_upload_url(
+        filename="tampered.png", content_type="image/png"
     )
     fake_s3.put(presign["key"], _TINY_PNG)
-    # Flip a character near the signature end — unsign() will reject.
+    # Flip a character near the signature end -- unsign() will reject.
     bad = presign["upload_token"][:-1] + (
         "A" if presign["upload_token"][-1] != "A" else "B"
     )
     with pytest.raises(PermissionDenied):
-        toolset.media_images_finalize(
-            superuser, upload_token=bad, title="Tampered"
-        )
+        bound.media_images_finalize(upload_token=bad, title="Tampered")
 
 
 @pytest.mark.django_db
-def test_finalize_rejects_unsigned_token(toolset, superuser, fake_s3):
+def test_finalize_rejects_unsigned_token(toolset, bind_user, superuser, fake_s3):
     """A raw (non-signed) string is rejected with a clear PermissionDenied."""
     with pytest.raises(PermissionDenied):
-        toolset.media_images_finalize(
-            superuser, upload_token="not.a.signed.token", title="Bogus"
+        bind_user(toolset, superuser).media_images_finalize(
+            upload_token="not.a.signed.token", title="Bogus"
         )
 
 
@@ -401,15 +414,17 @@ def test_finalize_rejects_unsigned_token(toolset, superuser, fake_s3):
 
 
 @pytest.mark.django_db
-def test_documents_upload_and_finalize(toolset, superuser, fake_s3):
-    presign = toolset.media_documents_get_upload_url(
-        superuser, filename="spec.pdf", content_type="application/pdf"
+def test_documents_upload_and_finalize(
+    toolset, bind_user, superuser, fake_s3
+):
+    bound = bind_user(toolset, superuser)
+    presign = bound.media_documents_get_upload_url(
+        filename="spec.pdf", content_type="application/pdf"
     )
     payload_bytes = b"%PDF-1.4 fake"
     fake_s3.put(presign["key"], payload_bytes)
 
-    payload = toolset.media_documents_finalize(
-        superuser,
+    payload = bound.media_documents_finalize(
         upload_token=presign["upload_token"],
         title="Spec",
         tags=["internal"],
@@ -428,18 +443,18 @@ def test_documents_upload_and_finalize(toolset, superuser, fake_s3):
 
 
 @pytest.mark.django_db
-def test_update_image_title_and_tags(toolset, superuser, image_obj):
-    updated = toolset.media_images_update(
-        superuser, id=image_obj.pk, title="Renamed", tags=["fresh"]
+def test_update_image_title_and_tags(toolset, bind_user, superuser, image_obj):
+    updated = bind_user(toolset, superuser).media_images_update(
+        id=image_obj.pk, title="Renamed", tags=["fresh"]
     )
     assert updated["title"] == "Renamed"
     assert updated["tags"] == ["fresh"]
 
 
 @pytest.mark.django_db
-def test_update_image_missing_raises(toolset, superuser):
+def test_update_image_missing_raises(toolset, bind_user, superuser):
     with pytest.raises(ValueError):
-        toolset.media_images_update(superuser, id=999_999, title="nope")
+        bind_user(toolset, superuser).media_images_update(id=999_999, title="nope")
 
 
 # ------------------------------------------------------ signed-token sanity
@@ -448,7 +463,7 @@ def test_update_image_missing_raises(toolset, superuser):
 def test_token_payload_is_json_with_expected_keys(monkeypatch):
     """The token carries enough for finalize to replay its checks.
 
-    This is a contract test — the payload shape must stay stable across
+    This is a contract test -- the payload shape must stay stable across
     releases, otherwise existing in-flight uploads break on upgrade.
     """
     from wagtail_mcp_server.toolsets.media import (

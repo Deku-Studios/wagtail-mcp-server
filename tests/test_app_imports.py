@@ -3,6 +3,11 @@
 Regression gate for the "on by default" invariant: the scaffold stubs
 must import without side effects, or AppConfig.ready will blow up at
 Django startup in any host project that installs us.
+
+Also covers the config-aware loader in ``wagtail_mcp_server.mcp`` that
+django-mcp-server's ``autodiscover_modules('mcp')`` pass triggers at
+startup: when a toolset is enabled, its module must be importable and
+its slug must end up in :func:`wagtail_mcp_server.registry.loaded_toolsets`.
 """
 
 from __future__ import annotations
@@ -46,9 +51,17 @@ def test_cli_import():
     assert main is not None
 
 
-def test_register_enabled_toolsets_runs_cleanly(settings):
-    """AppConfig.ready path: registration must succeed with every toolset on."""
-    from wagtail_mcp_server.registry import register_enabled_toolsets
+def test_load_enabled_runs_cleanly(settings):
+    """``_load_enabled`` must not raise when every toolset is on.
+
+    This is the replacement for the old ``register_enabled_toolsets``
+    smoke test; after the 0.4.0 refactor, toolset registration is a
+    side effect of importing the class (the ``ToolsetMeta`` metaclass
+    does the bookkeeping), and :mod:`wagtail_mcp_server.mcp` gates those
+    imports on the ``WAGTAIL_MCP_SERVER.TOOLSETS`` config. The metaclass
+    is idempotent, so re-running the loader in a test is safe.
+    """
+    from wagtail_mcp_server.mcp import _load_enabled
     from wagtail_mcp_server.settings import reset_cache
 
     settings.WAGTAIL_MCP_SERVER = {
@@ -63,7 +76,57 @@ def test_register_enabled_toolsets_runs_cleanly(settings):
     }
     reset_cache()
     try:
-        register_enabled_toolsets()  # must not raise
+        loaded = _load_enabled()
+        assert set(loaded) == {
+            "pages_query",
+            "pages_write",
+            "seo_query",
+            "seo_write",
+            "workflow",
+            "media",
+        }
     finally:
         settings.WAGTAIL_MCP_SERVER = {}
         reset_cache()
+
+
+def test_load_enabled_skips_disabled(settings):
+    """Toolsets explicitly set to ``enabled: False`` must not load.
+
+    ``pages_query`` and ``seo_query`` are on in the shipped defaults, so
+    an effective "only pages_query" setup must turn the sibling read
+    toolset off explicitly. This exercises the deep-merge path and proves
+    the loader respects an explicit opt-out.
+    """
+    from wagtail_mcp_server.mcp import _load_enabled
+    from wagtail_mcp_server.settings import reset_cache
+
+    settings.WAGTAIL_MCP_SERVER = {
+        "TOOLSETS": {
+            "pages_query": {"enabled": True},
+            "seo_query": {"enabled": False},
+            # pages_write/seo_write/workflow/media default to disabled.
+        },
+    }
+    reset_cache()
+    try:
+        loaded = _load_enabled()
+        assert loaded == ["pages_query"]
+    finally:
+        settings.WAGTAIL_MCP_SERVER = {}
+        reset_cache()
+
+
+def test_loaded_toolsets_snapshot_returns_list():
+    """``loaded_toolsets()`` returns the boot-time frozen list.
+
+    Its contents depend on the test-settings ``WAGTAIL_MCP_SERVER`` dict
+    that was active at import of :mod:`wagtail_mcp_server.mcp`, so we
+    only assert the public shape here.
+    """
+    from wagtail_mcp_server.registry import loaded_toolsets
+
+    result = loaded_toolsets()
+    assert isinstance(result, list)
+    for slug in result:
+        assert isinstance(slug, str)

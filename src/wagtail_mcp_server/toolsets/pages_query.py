@@ -22,6 +22,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from mcp_server.djangomcp import MCPToolset
+
 from ..schema import build_page_type_schema
 from ..serializers.page import PageSerializer
 from ..serializers.page_ref import serialize_page_ref
@@ -35,26 +37,53 @@ MAX_LIST_LIMIT = 100
 DEFAULT_SEARCH_LIMIT = 25
 
 
-class PageQueryToolset:
+class PageQueryToolset(MCPToolset):
     """django-mcp-server toolset for read-only page access.
 
-    The toolset takes options up front so the handlers do not have to
-    re-parse settings on every call. ``options`` controls richtext format,
-    chooser preview inclusion, and any future read-time knobs.
+    ``options`` and ``serializer`` are lazy properties (not ``__init__``
+    args) because django-mcp-server instantiates this class fresh on
+    every tool call with only ``context`` and ``request`` -- the base
+    ``MCPToolset.__init__`` rejects custom kwargs. Hosts that need a
+    custom ``SerializeOptions`` subclass should override
+    :meth:`_build_options` on a subclass.
     """
 
     name = "pages_query"
-    version = "0.1.0"
+    version = "0.4.0"
 
-    def __init__(self, *, options: SerializeOptions | None = None) -> None:
-        self.options = options or SerializeOptions()
-        self.serializer = PageSerializer(options=self.options)
+    # ------------------------------------------------------------ lazy serializer
+
+    def _build_options(self) -> SerializeOptions:
+        """Override hook for hosts that want different serialize options."""
+        return SerializeOptions()
+
+    @property
+    def options(self) -> SerializeOptions:
+        """Serialize options for this call. Cached per-instance.
+
+        The toolset is instantiated once per tool call so "per-instance"
+        and "per-call" are the same thing; recomputing on access would
+        still be cheap but caching keeps identity checks stable.
+        """
+        cached = self.__dict__.get("_options")
+        if cached is None:
+            cached = self._build_options()
+            self.__dict__["_options"] = cached
+        return cached
+
+    @property
+    def serializer(self) -> PageSerializer:
+        """Page serializer bound to :attr:`options`. Cached per-instance."""
+        cached = self.__dict__.get("_serializer")
+        if cached is None:
+            cached = PageSerializer(options=self.options)
+            self.__dict__["_serializer"] = cached
+        return cached
 
     # ------------------------------------------------------------------ pages.list
 
     def pages_list(
         self,
-        user: Any,
         *,
         parent_id: int | None = None,
         type: str | None = None,
@@ -66,6 +95,7 @@ class PageQueryToolset:
         offset: int = 0,
     ) -> dict[str, Any]:
         """List pages under ``parent_id`` (or site root) with filters applied."""
+        user = getattr(self.request, "user", None)
         qs = self._scoped_queryset(user)
         if parent_id is not None:
             parent = self._get_page_or_none(parent_id)
@@ -104,7 +134,6 @@ class PageQueryToolset:
 
     def pages_get(
         self,
-        user: Any,
         *,
         id: int | None = None,
         slug: str | None = None,
@@ -114,6 +143,7 @@ class PageQueryToolset:
         if id is None and slug is None and url_path is None:
             raise ValueError("pages.get requires one of: id, slug, url_path")
 
+        user = getattr(self.request, "user", None)
         qs = self._scoped_queryset(user)
         if id is not None:
             qs = qs.filter(pk=id)
@@ -130,7 +160,6 @@ class PageQueryToolset:
 
     def pages_tree(
         self,
-        user: Any,
         *,
         id: int,
         depth: int = 1,
@@ -140,6 +169,7 @@ class PageQueryToolset:
         ``depth`` applies to the descendants only. Ancestors always go all
         the way to the root because they are cheap and orient the agent.
         """
+        user = getattr(self.request, "user", None)
         page = self._get_page_or_none(id)
         if page is None or not _user_can_view(user, page):
             return None
@@ -159,7 +189,6 @@ class PageQueryToolset:
 
     def pages_search(
         self,
-        user: Any,
         *,
         query: str,
         type: str | None = None,
@@ -169,6 +198,7 @@ class PageQueryToolset:
         if not query:
             return {"items": [], "query": query}
 
+        user = getattr(self.request, "user", None)
         qs = self._scoped_queryset(user).live()
         if type:
             model = _resolve_page_model(type)
@@ -186,7 +216,7 @@ class PageQueryToolset:
 
     # ----------------------------------------------------------------- pages.types
 
-    def pages_types(self, user: Any) -> list[dict[str, Any]]:
+    def pages_types(self) -> list[dict[str, Any]]:
         """Return ``[{name, label, fields}, ...]`` for every registered page type."""
         from wagtail.models import get_page_models
 
@@ -203,7 +233,7 @@ class PageQueryToolset:
 
     # ------------------------------------------------------------ pages.types.schema
 
-    def pages_types_schema(self, user: Any, *, type: str) -> dict[str, Any] | None:
+    def pages_types_schema(self, *, type: str) -> dict[str, Any] | None:
         """JSON Schema for the given page type's writable shape."""
         model = _resolve_page_model(type)
         if model is None:

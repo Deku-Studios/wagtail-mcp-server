@@ -6,6 +6,8 @@ missing Wagtail permission). StreamField-envelope validation is covered
 in ``test_streamfield_deserialize.py``; this suite only exercises the
 thin integration slice where ``pages_update`` hands payload off to the
 write validator.
+
+Toolset instances are bound to a user via ``bind_user`` (see conftest).
 """
 
 from __future__ import annotations
@@ -71,9 +73,8 @@ def destructive_off(settings):
 
 
 @pytest.mark.django_db
-def test_create_draft_page_is_not_live(toolset, superuser, home_page):
-    result = toolset.pages_create(
-        superuser,
+def test_create_draft_page_is_not_live(toolset, bind_user, superuser, home_page):
+    result = bind_user(toolset, superuser).pages_create(
         type="wagtail_mcp_server_testapp.TestStreamPage",
         parent_id=home_page.pk,
         fields={"title": "Draft", "slug": "draft"},
@@ -84,9 +85,8 @@ def test_create_draft_page_is_not_live(toolset, superuser, home_page):
 
 
 @pytest.mark.django_db
-def test_create_with_publish_goes_live(toolset, superuser, home_page):
-    result = toolset.pages_create(
-        superuser,
+def test_create_with_publish_goes_live(toolset, bind_user, superuser, home_page):
+    result = bind_user(toolset, superuser).pages_create(
         type="wagtail_mcp_server_testapp.TestStreamPage",
         parent_id=home_page.pk,
         fields={"title": "Live", "slug": "live"},
@@ -96,9 +96,10 @@ def test_create_with_publish_goes_live(toolset, superuser, home_page):
 
 
 @pytest.mark.django_db
-def test_create_accepts_streamfield_envelope(toolset, superuser, home_page):
-    result = toolset.pages_create(
-        superuser,
+def test_create_accepts_streamfield_envelope(
+    toolset, bind_user, superuser, home_page
+):
+    result = bind_user(toolset, superuser).pages_create(
         type="wagtail_mcp_server_testapp.TestStreamPage",
         parent_id=home_page.pk,
         fields={
@@ -116,30 +117,31 @@ def test_create_accepts_streamfield_envelope(toolset, superuser, home_page):
 
 
 @pytest.mark.django_db
-def test_create_rejects_unknown_page_type(toolset, superuser, home_page):
+def test_create_rejects_unknown_page_type(
+    toolset, bind_user, superuser, home_page
+):
     with pytest.raises(ValueError):
-        toolset.pages_create(
-            superuser,
+        bind_user(toolset, superuser).pages_create(
             type="no_app.Nope",
             parent_id=home_page.pk,
         )
 
 
 @pytest.mark.django_db
-def test_create_anonymous_user_blocked(toolset, home_page):
+def test_create_anonymous_user_blocked(toolset, bind_user, home_page):
     with pytest.raises(PermissionDenied):
-        toolset.pages_create(
-            None,
+        bind_user(toolset, None).pages_create(
             type="wagtail_mcp_server_testapp.TestStreamPage",
             parent_id=home_page.pk,
         )
 
 
 @pytest.mark.django_db
-def test_create_rejects_malformed_streamfield(toolset, superuser, home_page):
+def test_create_rejects_malformed_streamfield(
+    toolset, bind_user, superuser, home_page
+):
     with pytest.raises(StreamFieldValidationError):
-        toolset.pages_create(
-            superuser,
+        bind_user(toolset, superuser).pages_create(
             type="wagtail_mcp_server_testapp.TestStreamPage",
             parent_id=home_page.pk,
             fields={
@@ -154,10 +156,11 @@ def test_create_rejects_malformed_streamfield(toolset, superuser, home_page):
 
 
 @pytest.mark.django_db
-def test_update_changes_field_and_bumps_revision(toolset, superuser, stream_page):
+def test_update_changes_field_and_bumps_revision(
+    toolset, bind_user, superuser, stream_page
+):
     initial_rev = stream_page.latest_revision_id or 0
-    result = toolset.pages_update(
-        superuser,
+    result = bind_user(toolset, superuser).pages_update(
         id=stream_page.pk,
         fields={"title": "Updated"},
     )
@@ -165,9 +168,10 @@ def test_update_changes_field_and_bumps_revision(toolset, superuser, stream_page
 
 
 @pytest.mark.django_db
-def test_update_with_publish_sets_live(toolset, superuser, stream_page):
-    result = toolset.pages_update(
-        superuser,
+def test_update_with_publish_sets_live(
+    toolset, bind_user, superuser, stream_page
+):
+    result = bind_user(toolset, superuser).pages_update(
         id=stream_page.pk,
         fields={"title": "Published"},
         publish=True,
@@ -176,10 +180,11 @@ def test_update_with_publish_sets_live(toolset, superuser, stream_page):
 
 
 @pytest.mark.django_db
-def test_update_unknown_field_silently_dropped(toolset, superuser, stream_page):
+def test_update_unknown_field_silently_dropped(
+    toolset, bind_user, superuser, stream_page
+):
     # Unknown fields are dropped (caller validates via pages.types.schema).
-    result = toolset.pages_update(
-        superuser,
+    result = bind_user(toolset, superuser).pages_update(
         id=stream_page.pk,
         fields={"title": "Still works", "nonsense_field": 99},
     )
@@ -188,40 +193,45 @@ def test_update_unknown_field_silently_dropped(toolset, superuser, stream_page):
 
 
 @pytest.mark.django_db
-def test_update_anonymous_blocked(toolset, stream_page):
+def test_update_anonymous_blocked(toolset, bind_user, stream_page):
     with pytest.raises(PermissionDenied):
-        toolset.pages_update(None, id=stream_page.pk, fields={"title": "nope"})
+        bind_user(toolset, None).pages_update(
+            id=stream_page.pk, fields={"title": "nope"}
+        )
 
 
 # -------------------------------------------------------------- pages.publish
 
 
 @pytest.mark.django_db
-def test_publish_defaults_to_latest_revision(toolset, superuser, stream_page):
+def test_publish_defaults_to_latest_revision(
+    toolset, bind_user, superuser, stream_page
+):
     # Bump a revision first so there's something to publish.
     stream_page.title = "Draft changes"
     rev = stream_page.save_revision(user=superuser)
-    result = toolset.pages_publish(superuser, id=stream_page.pk)
+    result = bind_user(toolset, superuser).pages_publish(id=stream_page.pk)
     assert result["live"] is True
     assert result["revision_id"] == rev.pk
 
 
 @pytest.mark.django_db
-def test_publish_no_revision_raises(toolset, superuser, home_page):
+def test_publish_no_revision_raises(toolset, bind_user, superuser, home_page):
     """A freshly-created Page with no revision history raises a clean error."""
     # home_page comes from a plain add_child, no save_revision called yet.
     with pytest.raises(ValueError):
-        toolset.pages_publish(superuser, id=home_page.pk)
+        bind_user(toolset, superuser).pages_publish(id=home_page.pk)
 
 
 # ------------------------------------------------------------ pages.unpublish
 
 
 @pytest.mark.django_db
-def test_unpublish_clears_live(toolset, superuser, stream_page):
+def test_unpublish_clears_live(toolset, bind_user, superuser, stream_page):
     # Make sure it's live first.
-    toolset.pages_update(superuser, id=stream_page.pk, fields={"title": "X"}, publish=True)
-    result = toolset.pages_unpublish(superuser, id=stream_page.pk)
+    bound = bind_user(toolset, superuser)
+    bound.pages_update(id=stream_page.pk, fields={"title": "X"}, publish=True)
+    result = bound.pages_unpublish(id=stream_page.pk)
     assert result["live"] is False
 
 
@@ -230,19 +240,19 @@ def test_unpublish_clears_live(toolset, superuser, stream_page):
 
 @pytest.mark.django_db
 def test_delete_blocked_when_destructive_gate_off(
-    toolset, superuser, stream_page, destructive_off
+    toolset, bind_user, superuser, stream_page, destructive_off
 ):
     with pytest.raises(PermissionDenied):
-        toolset.pages_delete(superuser, id=stream_page.pk)
+        bind_user(toolset, superuser).pages_delete(id=stream_page.pk)
     assert TestStreamPage.objects.filter(pk=stream_page.pk).exists()
 
 
 @pytest.mark.django_db
 def test_delete_succeeds_when_destructive_gate_on(
-    toolset, superuser, stream_page, destructive_on
+    toolset, bind_user, superuser, stream_page, destructive_on
 ):
     pk = stream_page.pk
-    result = toolset.pages_delete(superuser, id=pk)
+    result = bind_user(toolset, superuser).pages_delete(id=pk)
     assert result == {"id": pk, "deleted": True}
     assert not TestStreamPage.objects.filter(pk=pk).exists()
 
@@ -251,15 +261,16 @@ def test_delete_succeeds_when_destructive_gate_on(
 
 
 @pytest.mark.django_db
-def test_move_changes_parent(toolset, superuser, home_page, stream_page, site_root):
+def test_move_changes_parent(
+    toolset, bind_user, superuser, home_page, stream_page, site_root
+):
     # Create a sibling of home_page as the new parent.
     from wagtail.models import Page
 
     new_parent = Page(title="Elsewhere", slug="elsewhere")
     site_root.add_child(instance=new_parent)
 
-    result = toolset.pages_move(
-        superuser,
+    result = bind_user(toolset, superuser).pages_move(
         id=stream_page.pk,
         parent_id=new_parent.pk,
         position="last-child",
@@ -269,10 +280,11 @@ def test_move_changes_parent(toolset, superuser, home_page, stream_page, site_ro
 
 
 @pytest.mark.django_db
-def test_move_rejects_invalid_position(toolset, superuser, stream_page, home_page):
+def test_move_rejects_invalid_position(
+    toolset, bind_user, superuser, stream_page, home_page
+):
     with pytest.raises(ValueError):
-        toolset.pages_move(
-            superuser,
+        bind_user(toolset, superuser).pages_move(
             id=stream_page.pk,
             parent_id=home_page.pk,
             position="middle-child",  # not in MOVE_POSITIONS

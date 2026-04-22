@@ -118,3 +118,57 @@ def get_backend():
     if name == "BearerTokenAuth":
         return BearerTokenAuth()
     raise RuntimeError(f"Unknown auth backend: {name}")
+
+
+# ---------------------------------------------------------------------------
+# DRF adapter
+# ---------------------------------------------------------------------------
+#
+# django-mcp-server consumes ``DJANGO_MCP_AUTHENTICATION_CLASSES`` as a list
+# of dotted paths to ``rest_framework.authentication.BaseAuthentication``
+# subclasses. The library's own backends (``UserTokenAuth`` /
+# ``BearerTokenAuth``) use a different contract -- ``authenticate(http_headers=...)``
+# returning ``AuthResult`` -- so we need a thin adapter that satisfies DRF's
+# ``authenticate(self, request)`` signature and delegates to the configured
+# backend underneath. This keeps the library's own backend API reusable by
+# non-DRF consumers while still slotting cleanly into the MCP HTTP view.
+
+
+class UserTokenDRFAuth:
+    """DRF-style auth class that delegates to the configured backend.
+
+    Returns ``(user, auth_result)`` on success so DRF sets
+    ``request.user`` before the MCP dispatcher captures the request into
+    the ``django_request_ctx`` ContextVar. The resolved
+    :class:`AuthResult` is returned as the ``auth`` slot so callers that
+    want the token id or label can read ``request.auth.token_id`` /
+    ``request.auth.label``.
+
+    Returning ``None`` (rather than raising) when the header is missing
+    lets DRF fall through to any additional auth classes the host has
+    configured; raising :class:`rest_framework.exceptions.AuthenticationFailed`
+    forces a 401 immediately with a WWW-Authenticate header. We raise
+    only when a token **is** presented but cannot be resolved.
+    """
+
+    www_authenticate_realm = "wagtail-mcp-server"
+
+    def authenticate(self, request):
+        # Deferred import so the app registry is up before we touch models.
+        from rest_framework.exceptions import AuthenticationFailed as DRFAuthFailed
+
+        auth_header = request.META.get("HTTP_AUTHORIZATION", "")
+        if not auth_header or not auth_header.lower().startswith("bearer "):
+            return None  # let DRF try other auth classes or anonymous
+
+        backend = get_backend()
+        headers = {"Authorization": auth_header}
+        try:
+            result = backend.authenticate(http_headers=headers)
+        except AuthenticationFailed as exc:
+            # DRF expects its own exception to trigger the 401 path.
+            raise DRFAuthFailed(str(exc)) from exc
+        return (result.user, result)
+
+    def authenticate_header(self, request):  # noqa: ARG002 - DRF contract
+        return f'Bearer realm="{self.www_authenticate_realm}"'

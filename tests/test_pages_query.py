@@ -1,4 +1,9 @@
-"""End-to-end tests for the six ``PageQueryToolset`` handlers."""
+"""End-to-end tests for the six ``PageQueryToolset`` handlers.
+
+Toolset instances are bound to a user via ``bind_user`` (see conftest).
+``pages.*`` query tools treat an unauthenticated caller as "public"
+(live pages only), so most tests here bind ``None``.
+"""
 
 from __future__ import annotations
 
@@ -16,17 +21,18 @@ def toolset():
 
 
 @pytest.mark.django_db
-def test_list_returns_pages_under_parent(toolset, home_page, stream_page):
-    result = toolset.pages_list(user=None, parent_id=home_page.pk)
+def test_list_returns_pages_under_parent(
+    toolset, bind_user, home_page, stream_page
+):
+    result = bind_user(toolset, None).pages_list(parent_id=home_page.pk)
     slugs = {item["slug"] for item in result["items"]}
     assert "stream" in slugs
     assert result["total"] == len(result["items"])
 
 
 @pytest.mark.django_db
-def test_list_filters_by_type(toolset, home_page, stream_page):
-    result = toolset.pages_list(
-        user=None,
+def test_list_filters_by_type(toolset, bind_user, home_page, stream_page):
+    result = bind_user(toolset, None).pages_list(
         parent_id=home_page.pk,
         type="wagtail_mcp_server_testapp.TestStreamPage",
     )
@@ -35,8 +41,10 @@ def test_list_filters_by_type(toolset, home_page, stream_page):
 
 
 @pytest.mark.django_db
-def test_list_returns_empty_for_unknown_type(toolset, home_page):
-    result = toolset.pages_list(user=None, parent_id=home_page.pk, type="nope.Missing")
+def test_list_returns_empty_for_unknown_type(toolset, bind_user, home_page):
+    result = bind_user(toolset, None).pages_list(
+        parent_id=home_page.pk, type="nope.Missing"
+    )
     assert result["items"] == []
 
 
@@ -44,36 +52,38 @@ def test_list_returns_empty_for_unknown_type(toolset, home_page):
 
 
 @pytest.mark.django_db
-def test_get_by_id(toolset, stream_page):
-    payload = toolset.pages_get(user=None, id=stream_page.pk)
+def test_get_by_id(toolset, bind_user, stream_page):
+    payload = bind_user(toolset, None).pages_get(id=stream_page.pk)
     assert payload is not None
     assert payload["id"] == stream_page.pk
 
 
 @pytest.mark.django_db
-def test_get_by_slug(toolset, stream_page):
-    payload = toolset.pages_get(user=None, slug="stream")
+def test_get_by_slug(toolset, bind_user, stream_page):
+    payload = bind_user(toolset, None).pages_get(slug="stream")
     assert payload is not None
     assert payload["slug"] == "stream"
 
 
 @pytest.mark.django_db
-def test_get_returns_none_for_missing(toolset):
-    assert toolset.pages_get(user=None, id=99999) is None
+def test_get_returns_none_for_missing(toolset, bind_user):
+    assert bind_user(toolset, None).pages_get(id=99999) is None
 
 
 @pytest.mark.django_db
-def test_get_requires_at_least_one_lookup(toolset):
+def test_get_requires_at_least_one_lookup(toolset, bind_user):
     with pytest.raises(ValueError):
-        toolset.pages_get(user=None)
+        bind_user(toolset, None).pages_get()
 
 
 # ---------------------------------------------------------------------- pages.tree
 
 
 @pytest.mark.django_db
-def test_tree_returns_ancestors_and_descendants(toolset, home_page, stream_page):
-    result = toolset.pages_tree(user=None, id=home_page.pk, depth=1)
+def test_tree_returns_ancestors_and_descendants(
+    toolset, bind_user, home_page, stream_page
+):
+    result = bind_user(toolset, None).pages_tree(id=home_page.pk, depth=1)
     assert result is not None
     assert result["page"]["slug"] == "test-home"
     descendant_slugs = {d["slug"] for d in result["descendants"]}
@@ -84,25 +94,25 @@ def test_tree_returns_ancestors_and_descendants(toolset, home_page, stream_page)
 
 
 @pytest.mark.django_db
-def test_tree_returns_none_for_missing_id(toolset):
-    assert toolset.pages_tree(user=None, id=99999) is None
+def test_tree_returns_none_for_missing_id(toolset, bind_user):
+    assert bind_user(toolset, None).pages_tree(id=99999) is None
 
 
 # -------------------------------------------------------------------- pages.search
 
 
 @pytest.mark.django_db
-def test_search_returns_matches(toolset, stream_page):
+def test_search_returns_matches(toolset, bind_user, stream_page):
     # Search uses the configured backend; the in-memory default falls back
     # to icontains on title for unindexed test models.
-    result = toolset.pages_search(user=None, query="Stream")
+    result = bind_user(toolset, None).pages_search(query="Stream")
     assert "items" in result
     assert result["query"] == "Stream"
 
 
 @pytest.mark.django_db
-def test_search_empty_query_short_circuits(toolset):
-    result = toolset.pages_search(user=None, query="")
+def test_search_empty_query_short_circuits(toolset, bind_user):
+    result = bind_user(toolset, None).pages_search(query="")
     assert result == {"items": [], "query": ""}
 
 
@@ -110,8 +120,8 @@ def test_search_empty_query_short_circuits(toolset):
 
 
 @pytest.mark.django_db
-def test_types_lists_test_page_models(toolset):
-    types = toolset.pages_types(user=None)
+def test_types_lists_test_page_models(toolset, bind_user):
+    types = bind_user(toolset, None).pages_types()
     names = {entry["name"] for entry in types}
     assert "wagtail_mcp_server_testapp.TestStreamPage" in names
     assert "wagtail_mcp_server_testapp.TestRenditionPage" in names
@@ -121,9 +131,8 @@ def test_types_lists_test_page_models(toolset):
 
 
 @pytest.mark.django_db
-def test_types_schema_returns_json_schema(toolset):
-    schema = toolset.pages_types_schema(
-        user=None,
+def test_types_schema_returns_json_schema(toolset, bind_user):
+    schema = bind_user(toolset, None).pages_types_schema(
         type="wagtail_mcp_server_testapp.TestStreamPage",
     )
     assert schema is not None
@@ -135,5 +144,5 @@ def test_types_schema_returns_json_schema(toolset):
 
 
 @pytest.mark.django_db
-def test_types_schema_returns_none_for_missing_type(toolset):
-    assert toolset.pages_types_schema(user=None, type="nope.Missing") is None
+def test_types_schema_returns_none_for_missing_type(toolset, bind_user):
+    assert bind_user(toolset, None).pages_types_schema(type="nope.Missing") is None
