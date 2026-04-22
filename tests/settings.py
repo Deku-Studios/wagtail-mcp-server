@@ -41,6 +41,10 @@ INSTALLED_APPS = [
     "wagtail",
     # App under test:
     "wagtail_mcp_server",
+    # In-tree test fixtures (Wagtail page models exercising every block
+    # shape + an FK denormalization page). Lives under tests/ so it is
+    # not shipped in the published wheel.
+    "tests.testapp",
 ]
 
 MIDDLEWARE = [
