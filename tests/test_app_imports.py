@@ -44,3 +44,26 @@ def test_models_import():
 def test_cli_import():
     from wagtail_mcp_server.cli import main
     assert main is not None
+
+
+def test_register_enabled_toolsets_runs_cleanly(settings):
+    """AppConfig.ready path: registration must succeed with every toolset on."""
+    from wagtail_mcp_server.registry import register_enabled_toolsets
+    from wagtail_mcp_server.settings import reset_cache
+
+    settings.WAGTAIL_MCP_SERVER = {
+        "TOOLSETS": {
+            "pages_query": {"enabled": True},
+            "pages_write": {"enabled": True},
+            "seo_query": {"enabled": True},
+            "seo_write": {"enabled": True},
+            "workflow": {"enabled": True},
+            "media": {"enabled": True},
+        },
+    }
+    reset_cache()
+    try:
+        register_enabled_toolsets()  # must not raise
+    finally:
+        settings.WAGTAIL_MCP_SERVER = {}
+        reset_cache()

@@ -295,3 +295,361 @@ def _serialize_list(
         rendered = serialize_block(child_block, child_value, options=options)
         out.append(make_envelope(child_type, child_id, rendered))
     return out
+
+
+# ---------------------------------------------------------------------------
+# Write-path walk
+# ---------------------------------------------------------------------------
+#
+# ``deserialize_streamfield`` consumes the symmetric envelope format produced
+# by the read path and returns a list of ``(block_type, value)`` tuples that
+# Wagtail accepts on ``page.body = [...]`` assignment. Strict validation is
+# the default: unknown block types, unknown struct children, envelope shape
+# errors, and unresolvable chooser references accumulate into
+# ``StreamFieldValidationError`` rather than silently dropping.
+
+
+def deserialize_streamfield(
+    stream_block: Any,
+    payload: Any,
+    *,
+    options: DeserializeOptions | None = None,
+) -> list[tuple[str, Any]]:
+    """Walk an envelope list and return a Wagtail-assignable list.
+
+    ``stream_block`` is the top-level ``StreamBlock`` from the
+    ``StreamField`` being written to (e.g.
+    ``MyPage._meta.get_field("body").stream_block``).
+
+    ``payload`` is a list of envelope dicts shaped per
+    :func:`serialize_streamfield`. ``None`` is treated as ``[]`` so callers
+    can say "clear the body" naturally.
+
+    Output: list of ``(block_type, native_value)`` tuples. Assigning this
+    list to a ``StreamField`` triggers Wagtail's own ``to_python`` path and
+    produces a valid ``StreamValue``.
+
+    Validation accumulates in ``options.errors``. In ``"strict"`` mode the
+    function raises :class:`StreamFieldValidationError` at the end of the
+    walk if any errors were recorded. In ``"permissive"`` mode the errors
+    are returned on the options object and offending items are dropped.
+    """
+    options = options or DeserializeOptions()
+    if payload is None:
+        payload = []
+    result = _deserialize_stream(stream_block, payload, options=options, path="$")
+    if options.validation == "strict" and options.errors:
+        raise StreamFieldValidationError(options.errors)
+    return result
+
+
+def _deserialize_stream(
+    stream_block: Any,
+    payload: Any,
+    *,
+    options: DeserializeOptions,
+    path: str,
+) -> list[tuple[str, Any]]:
+    """Walk a stream-level envelope list into ``[(type, value), ...]``."""
+    if not isinstance(payload, list):
+        options.errors.append(
+            StreamFieldError(
+                code="envelope_shape",
+                path=path,
+                expected="list of envelopes",
+                got=_describe(payload),
+            )
+        )
+        return []
+
+    child_blocks = getattr(stream_block, "child_blocks", {}) or {}
+    out: list[tuple[str, Any]] = []
+    for idx, envelope in enumerate(payload):
+        item_path = f"{path}[{idx}]"
+        if not is_envelope(envelope):
+            options.errors.append(
+                StreamFieldError(
+                    code="envelope_shape",
+                    path=item_path,
+                    expected="{type, id, value}",
+                    got=_describe(envelope),
+                )
+            )
+            continue
+
+        block_type = envelope["type"]
+        if block_type not in child_blocks:
+            options.errors.append(
+                StreamFieldError(
+                    code="unknown_block_type",
+                    path=item_path,
+                    expected=f"one of {sorted(child_blocks.keys())}",
+                    got=str(block_type),
+                )
+            )
+            continue
+
+        block = child_blocks[block_type]
+        value = _deserialize_block(
+            block,
+            envelope.get("value"),
+            options=options,
+            path=f"{item_path}.value",
+        )
+        out.append((block_type, value))
+    return out
+
+
+def _deserialize_block(
+    block: Any,
+    value: Any,
+    *,
+    options: DeserializeOptions,
+    path: str,
+) -> Any:
+    """Dispatch a single block value to its deserializer."""
+    from wagtail import blocks as wagtail_blocks
+    from wagtail.documents.blocks import DocumentChooserBlock
+    from wagtail.images.blocks import ImageChooserBlock
+
+    if block is None:
+        return value
+
+    if isinstance(block, wagtail_blocks.StreamBlock):
+        return _deserialize_stream(block, value, options=options, path=path)
+
+    if isinstance(block, wagtail_blocks.ListBlock):
+        return _deserialize_list(block, value, options=options, path=path)
+
+    if isinstance(block, wagtail_blocks.StructBlock):
+        return _deserialize_struct(block, value, options=options, path=path)
+
+    if isinstance(block, ImageChooserBlock):
+        from wagtail.images import get_image_model
+
+        return _resolve_chooser(get_image_model(), value, path=path, options=options)
+
+    if isinstance(block, DocumentChooserBlock):
+        from wagtail.documents import get_document_model
+
+        return _resolve_chooser(get_document_model(), value, path=path, options=options)
+
+    if isinstance(block, wagtail_blocks.PageChooserBlock):
+        from wagtail.models import Page
+
+        return _resolve_chooser(Page, value, path=path, options=options)
+
+    # Primitive blocks (Char/Text/Integer/Boolean/URL/Email/Decimal/Date/
+    # Choice/RichText, etc.) pass the scalar straight through. Wagtail's
+    # own block.clean() and to_python() handle coercion and type errors on
+    # the final save path; we intentionally do not re-invent that layer.
+    return value
+
+
+def _deserialize_struct(
+    block: Any,
+    value: Any,
+    *,
+    options: DeserializeOptions,
+    path: str,
+) -> dict[str, Any]:
+    """Deserialize a StructBlock payload: ``{child_name: value}``.
+
+    Children are NOT envelope-wrapped (matches the read path; see spec
+    section 6.6). Unknown children raise ``unknown_child`` in strict mode.
+    Missing required children raise ``missing_required``.
+    """
+    if not isinstance(value, dict):
+        options.errors.append(
+            StreamFieldError(
+                code="envelope_shape",
+                path=path,
+                expected="dict of {child_name: value}",
+                got=_describe(value),
+            )
+        )
+        return {}
+
+    child_blocks = getattr(block, "child_blocks", {}) or {}
+    known = set(child_blocks.keys())
+    seen = set(value.keys())
+
+    if options.validation == "strict":
+        for name in sorted(seen - known):
+            options.errors.append(
+                StreamFieldError(
+                    code="unknown_child",
+                    path=f"{path}.{name}",
+                    expected=f"one of {sorted(known)}",
+                    got=name,
+                )
+            )
+
+    out: dict[str, Any] = {}
+    for child_name, child_block in child_blocks.items():
+        child_path = f"{path}.{child_name}"
+        if child_name in value:
+            child_value = value[child_name]
+        else:
+            child_value = _block_default(child_block)
+            if child_value is None and _block_required(child_block):
+                options.errors.append(
+                    StreamFieldError(
+                        code="missing_required",
+                        path=child_path,
+                        expected=child_name,
+                        got="missing",
+                    )
+                )
+                continue
+        out[child_name] = _deserialize_block(
+            child_block,
+            child_value,
+            options=options,
+            path=child_path,
+        )
+    return out
+
+
+def _deserialize_list(
+    block: Any,
+    value: Any,
+    *,
+    options: DeserializeOptions,
+    path: str,
+) -> list[Any]:
+    """Deserialize a ListBlock payload: ``[<envelope>, ...]`` → ``[value, ...]``.
+
+    The envelope ``type`` on each child is pinned by ``block.child_block``;
+    mismatches raise ``unknown_block_type`` in strict mode (the agent can
+    only send the one child type a ListBlock knows).
+    """
+    if not isinstance(value, list):
+        options.errors.append(
+            StreamFieldError(
+                code="envelope_shape",
+                path=path,
+                expected="list of envelopes",
+                got=_describe(value),
+            )
+        )
+        return []
+
+    child_block = getattr(block, "child_block", None)
+    child_type = getattr(child_block, "name", "") or ""
+
+    out: list[Any] = []
+    for idx, envelope in enumerate(value):
+        item_path = f"{path}[{idx}]"
+        if not is_envelope(envelope):
+            options.errors.append(
+                StreamFieldError(
+                    code="envelope_shape",
+                    path=item_path,
+                    expected="{type, id, value}",
+                    got=_describe(envelope),
+                )
+            )
+            continue
+        if child_type and envelope["type"] != child_type:
+            options.errors.append(
+                StreamFieldError(
+                    code="unknown_block_type",
+                    path=item_path,
+                    expected=child_type,
+                    got=str(envelope["type"]),
+                )
+            )
+            continue
+        out.append(
+            _deserialize_block(
+                child_block,
+                envelope.get("value"),
+                options=options,
+                path=f"{item_path}.value",
+            )
+        )
+    return out
+
+
+def _resolve_chooser(
+    model: Any,
+    value: Any,
+    *,
+    path: str,
+    options: DeserializeOptions,
+) -> Any:
+    """Resolve an agent-provided chooser reference to a model instance.
+
+    Accepted inputs:
+        - ``int`` -> treat as primary key.
+        - ``{"_raw_id": int, ...}`` -> primary key lives under ``_raw_id``.
+        - ``None`` -> preserved (clears the chooser).
+
+    Any other shape is an ``invalid_chooser_ref`` error.
+    """
+    if value is None:
+        return None
+
+    if isinstance(value, int):
+        raw_id: Any = value
+    elif isinstance(value, dict):
+        raw_id = value.get("_raw_id")
+    else:
+        options.errors.append(
+            StreamFieldError(
+                code="invalid_chooser_ref",
+                path=path,
+                expected="int or {_raw_id: int}",
+                got=_describe(value),
+            )
+        )
+        return None
+
+    if raw_id is None:
+        options.errors.append(
+            StreamFieldError(
+                code="invalid_chooser_ref",
+                path=path,
+                expected="_raw_id int",
+                got="missing or null",
+            )
+        )
+        return None
+
+    try:
+        return model.objects.get(pk=raw_id)
+    except model.DoesNotExist:
+        options.errors.append(
+            StreamFieldError(
+                code="invalid_chooser_ref",
+                path=path,
+                expected=f"{model._meta.label} row with pk={raw_id}",
+                got="not found",
+            )
+        )
+        return None
+
+
+def _block_required(block: Any) -> bool:
+    """Best-effort "is this child required" check across block kinds."""
+    meta = getattr(block, "meta", None)
+    if meta is not None and hasattr(meta, "required"):
+        return bool(meta.required)
+    return bool(getattr(block, "required", False))
+
+
+def _block_default(block: Any) -> Any:
+    meta = getattr(block, "meta", None)
+    if meta is not None and hasattr(meta, "default"):
+        return meta.default
+    return getattr(block, "default", None)
+
+
+def _describe(value: Any) -> str:
+    """Human-readable type description for error messages."""
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "bool"
+    return type(value).__name__

@@ -46,6 +46,13 @@ db.sqlite3-journal
 media/
 staticfiles/
 
+# Test fixtures leak into these dirs when Wagtail image/document fixtures
+# run without a test-scoped MEDIA_ROOT. Safe to drop everywhere.
+/documents/
+/images/
+/original_images/
+pytest-cache-files-*/
+
 # Environment files
 .env
 .env.local

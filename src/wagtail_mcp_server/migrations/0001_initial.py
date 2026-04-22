@@ -21,10 +21,31 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="UserMcpToken",
             fields=[
-                ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False)),
-                ("label", models.CharField(max_length=120)),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                (
+                    "label",
+                    models.CharField(
+                        help_text="Human-readable label, typically the agent name.",
+                        max_length=120,
+                    ),
+                ),
                 ("token_hash", models.CharField(db_index=True, max_length=64, unique=True)),
-                ("token_prefix", models.CharField(db_index=True, max_length=8)),
+                (
+                    "token_prefix",
+                    models.CharField(
+                        db_index=True,
+                        help_text="First 8 chars of the plaintext, stored for lookup UX.",
+                        max_length=8,
+                    ),
+                ),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("last_used_at", models.DateTimeField(blank=True, null=True)),
                 ("revoked_at", models.DateTimeField(blank=True, null=True)),
@@ -46,7 +67,15 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="ToolCall",
             fields=[
-                ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False)),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 ("toolset", models.CharField(db_index=True, max_length=64)),
                 ("tool", models.CharField(db_index=True, max_length=128)),
                 (
@@ -94,13 +123,21 @@ class Migration(migrations.Migration):
             model_name="toolcall",
             index=models.Index(
                 fields=["toolset", "tool", "-created_at"],
-                name="wms_toolcall_tstool_ca_idx",
+                name="wagtail_mcp_toolset_51d8f0_idx",
             ),
         ),
         migrations.CreateModel(
             name="AgentScratchpad",
             fields=[
-                ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False)),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 ("namespace", models.CharField(db_index=True, max_length=64)),
                 ("key", models.CharField(max_length=256)),
                 ("value", models.JSONField(blank=True, default=dict)),
