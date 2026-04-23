@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-04-23
+
+### Fixed
+- **`pages.get` Locale serialization.** `_serialize_meta` surfaced the `locale` field by pushing the raw `wagtail.models.Locale` instance through `_to_json_safe`, which only coerced datetimes. The MCP JSON encoder downstream then raised `Unable to serialize unknown type: <class 'wagtail.models.i18n.Locale'>`, breaking `pages.get` for every page on Wagtail 7.3+ (every `Page` carries a locale FK). `_to_json_safe` now converts `Locale` instances to their `language_code` string, matching the documented `"meta.locale": "en"` shape. Other tools were unaffected because they emit the lean `{_raw_id, id, title, slug, url_path, page_type}` page dict rather than the full serialized payload. Added a regression test in `tests/test_page_serializer.py::test_meta_locale_is_language_code_string` that `json.dumps` the full payload to catch encoder-level regressions too.
+
 ## [0.5.0] - 2026-04-22
 
 ### Added

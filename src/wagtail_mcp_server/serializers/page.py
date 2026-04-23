@@ -212,9 +212,33 @@ def _denormalize_related(obj: Any) -> dict[str, Any] | None:
 
 
 def _to_json_safe(value: Any) -> Any:
-    """Coerce datetimes and other common non-JSON types to JSON-friendly forms."""
+    """Coerce datetimes and other common non-JSON types to JSON-friendly forms.
+
+    Handles:
+
+    - ``datetime`` / ``date`` → ISO-8601 string via ``.isoformat()``.
+    - ``wagtail.models.Locale`` → the ``language_code`` string (e.g. ``"en"``).
+      This is what every ``pages.get`` payload needs under ``meta.locale`` and
+      is the useful shape for agents; the opaque numeric Locale pk is not.
+
+    Anything else is returned unchanged. The JSON encoder further down the
+    stack will raise if it still cannot serialize the value; that is the
+    correct behavior for truly unknown types (loud failure beats silent
+    shape drift).
+    """
     import datetime
 
     if isinstance(value, datetime.datetime | datetime.date):
         return value.isoformat()
+
+    # Locale: import locally so the serializer module stays importable
+    # without Wagtail loaded (e.g. during type-stub generation). On the
+    # happy path Wagtail is always present so the import is cheap.
+    try:
+        from wagtail.models import Locale
+    except ImportError:  # pragma: no cover -- wagtail is a hard dep
+        Locale = None  # type: ignore[assignment]
+    if Locale is not None and isinstance(value, Locale):
+        return value.language_code
+
     return value

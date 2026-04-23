@@ -85,3 +85,25 @@ def test_subclass_extra_fields_are_added(stream_page):
     payload = WithSlugAlias().serialize(stream_page)
     assert "depth" in payload["fields"]
     assert payload["fields"]["depth"] == stream_page.depth
+
+
+@pytest.mark.django_db
+def test_meta_locale_is_language_code_string(stream_page):
+    """Regression: ``meta.locale`` must be the ``language_code`` string, not
+    a raw ``wagtail.models.Locale`` instance.
+
+    Prior to 0.5.1, ``_serialize_meta`` passed the FK value through
+    ``_to_json_safe`` which only handled datetimes, leaving the Locale
+    object unchanged. The MCP JSON encoder then failed with
+    ``Unable to serialize unknown type: <class 'wagtail.models.i18n.Locale'>``,
+    breaking ``pages.get`` for every page (every page carries a locale).
+    """
+    import json
+
+    payload = PageSerializer().serialize(stream_page)
+    locale_value = payload["meta"]["locale"]
+    assert isinstance(locale_value, str)
+    assert locale_value == stream_page.locale.language_code
+    # Round-trip through json.dumps to guarantee the full payload is
+    # JSON-safe -- the actual failure mode on prod was encoder-level.
+    json.dumps(payload)
