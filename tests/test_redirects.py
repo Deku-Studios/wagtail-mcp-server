@@ -23,7 +23,6 @@ from django.core.exceptions import PermissionDenied
 from wagtail_mcp_server.settings import reset_cache
 from wagtail_mcp_server.toolsets.redirects import RedirectsToolset
 
-
 # ---------------------------------------------------------------------- fixtures
 
 

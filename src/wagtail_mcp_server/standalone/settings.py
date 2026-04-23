@@ -35,6 +35,7 @@ useful to expose immediately.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import secrets
 import sys
@@ -78,10 +79,10 @@ def _load_or_create_secret_key() -> str:
         return key_path.read_text().strip()
     key = secrets.token_urlsafe(48)
     key_path.write_text(key)
-    try:
+    # chmod is best-effort: Windows POSIX-perm support is partial and
+    # the file is already on disk regardless. Suppress narrowly.
+    with contextlib.suppress(OSError):
         key_path.chmod(0o600)
-    except OSError:  # noqa: S110 - chmod is best-effort on Windows
-        pass
     return key
 
 

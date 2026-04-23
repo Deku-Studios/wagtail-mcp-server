@@ -26,7 +26,6 @@ from pathlib import Path
 
 import pytest
 
-
 # ----------------------------------------------------------------- _parse_args
 
 
@@ -139,7 +138,7 @@ def test_standalone_settings_creates_data_dir_and_secret_key(
     mod = fresh_standalone_settings
     assert Path(mod.DATA_DIR) == tmp_path
     assert (tmp_path / "secret_key").exists()
-    assert mod.SECRET_KEY == (tmp_path / "secret_key").read_text().strip()
+    assert (tmp_path / "secret_key").read_text().strip() == mod.SECRET_KEY
     assert len(mod.SECRET_KEY) >= 40  # token_urlsafe(48) -> 64 chars
 
 
@@ -156,7 +155,7 @@ def test_standalone_settings_secret_key_sticks_across_imports(
     second = importlib.import_module("wagtail_mcp_server.standalone.settings")
     sys.modules.pop("wagtail_mcp_server.standalone.settings", None)
 
-    assert second.SECRET_KEY == first_key
+    assert first_key == second.SECRET_KEY
 
 
 def test_standalone_settings_database_points_at_data_dir(

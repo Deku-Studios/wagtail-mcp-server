@@ -53,6 +53,17 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e '.[docs]'
 
+      # configure-pages resolves the site's deployment URL and, when
+      # `enablement: true` is set, tries to enable Pages on the repo
+      # if it isn't already. The enablement call is idempotent and
+      # only runs on push/dispatch because pull_request doesn't have
+      # the token scope to mutate repo settings.
+      - name: Configure Pages
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
       - name: Build site
         run: mkdocs build --strict --clean --site-dir _site
 
