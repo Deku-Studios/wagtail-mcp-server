@@ -11,8 +11,14 @@ WAGTAIL_MCP_SERVER = {
         "ALLOW_IMPERSONATION": False,
     },
     "TOOLSETS": {
-        "pages_query": {"enabled": True},   # on by default (safe read)
-        "seo_query":   {"enabled": True},   # on by default (safe read)
+        "pages_query":       {"enabled": True},   # on by default (safe read)
+        "seo_query":         {"enabled": True},   # on by default (safe read)
+        "collections_query": {"enabled": True},   # on by default (safe read)
+        "snippets_query":    {"enabled": True},   # on by default (safe read)
+        "redirects": {                            # split-flag toolset
+            "enabled_read":  True,                # read on by default
+            "enabled_write": False,               # write off by default
+        },
         "pages_write": {"enabled": False},  # off by default
         "workflow":    {"enabled": False},  # off by default
         "media":       {"enabled": False},  # off by default
@@ -29,7 +35,7 @@ WAGTAIL_MCP_SERVER = {
     "AUDIT": {
         "ENABLED": True,
         "RETENTION_DAYS": 90,
-        "EMIT_OTEL": False,
+        "EMIT_OTEL": True,
     },
 }
 ```
@@ -49,6 +55,18 @@ Default `False`. When `True`, a privileged agent token can include an `on_behalf
 ### `TOOLSETS.*.enabled`
 
 Invariant: every write toolset is off by default. Flipping `pages_write` on does not turn on `workflow` or `media`. Each write toolset is an explicit opt-in.
+
+A disabled toolset is **not imported** — config gating happens before `ToolsetMeta` ever runs, so disabled tools never appear on the MCP wire and never count against the host's import time.
+
+### `TOOLSETS.redirects.enabled_read` / `enabled_write`
+
+`redirects` is the only toolset in v0.5 that uses a split-flag config — its read side ships on by default, its write side ships off. Use the split-flag form for `redirects` only:
+
+```python
+"redirects": {"enabled_read": True, "enabled_write": False}
+```
+
+Other toolsets use the single `enabled` flag. The asymmetry exists because read-access to a redirect map is something an agent realistically needs at the audit-only tier, but write access is high-blast-radius (a wrong redirect can take a section of the site down).
 
 ### `LIMITS.MAX_PAGE_SIZE`
 
@@ -84,8 +102,8 @@ Default `True`. Every tool call is recorded to the `ToolCall` table.
 
 ### `AUDIT.RETENTION_DAYS`
 
-Default `90`. Pruning is out of scope for v0.1; intend to run a Celery beat task or a management command on this schedule.
+Default `90`. As of v0.5, `python manage.py mcp_prune_audit` enforces the window against the `ToolCall` table. Schedule it via Celery beat, cron, or the host's equivalent. Flags: `--dry-run`, `--batch-size N`, `--older-than DAYS` (override the setting for a single run).
 
 ### `AUDIT.EMIT_OTEL`
 
-Default `False`. When `True` and the optional `otel` extras group is installed, every tool call emits a span named `wagtail_mcp_server.tool.<toolset>.<tool>`. The host app owns the tracer provider and exporter; this library never configures them.
+Default `True` as of v0.5. When an OpenTelemetry SDK is configured in the host process, every tool call emits a span named `wagtail_mcp_server.tool.<toolset>.<tool>`. When no SDK is configured, emission is a silent no-op and costs nothing. The host app owns the tracer provider and exporter; this library never configures them. Set to `False` to suppress emission explicitly.

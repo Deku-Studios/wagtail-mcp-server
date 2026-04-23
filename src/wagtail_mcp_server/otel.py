@@ -1,7 +1,9 @@
 """OpenTelemetry emission for wagtail-mcp-server.
 
-Dormant by default. Turned on by setting
-``WAGTAIL_MCP_SERVER["AUDIT"]["EMIT_OTEL"] = True`` in the host project.
+On by default as of v0.5. No-op when the host process has not
+configured an OpenTelemetry SDK, so the default is safe for every
+install. Set ``WAGTAIL_MCP_SERVER["AUDIT"]["EMIT_OTEL"] = False`` to
+suppress emission explicitly.
 
 Design contract:
     - The host app owns the OTel SDK and the exporter. This module never

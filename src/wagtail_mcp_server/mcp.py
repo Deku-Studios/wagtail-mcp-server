@@ -31,7 +31,7 @@ from __future__ import annotations
 import logging
 from importlib import import_module
 
-from .settings import get_config
+from .settings import get_config, toolset_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +48,26 @@ _IMPORTS: dict[str, tuple[str, str]] = {
     "media": ("wagtail_mcp_server.toolsets.media", "MediaToolset"),
     "seo_query": ("wagtail_mcp_server.toolsets.seo_query", "SEOQueryToolset"),
     "seo_write": ("wagtail_mcp_server.toolsets.seo_write", "SEOWriteToolset"),
+    # New in v0.5: read-only surface for Wagtail Collections. On by default;
+    # safe (no bytes, no mutation, no cross-tenant data).
+    "collections_query": (
+        "wagtail_mcp_server.toolsets.collections_query",
+        "CollectionsQueryToolset",
+    ),
+    # New in v0.5: read-only enumeration of registered snippets. On by
+    # default; per-type dispatch still requires Django view perm.
+    "snippets_query": (
+        "wagtail_mcp_server.toolsets.snippets_query",
+        "SnippetsQueryToolset",
+    ),
+    # New in v0.5. The ``redirects`` toolset is the only one using the
+    # split enabled_read/enabled_write shape -- reads on by default,
+    # writes off by default. Per-tool gating lives inside the toolset
+    # (see :func:`settings.toolset_write_enabled`).
+    "redirects": (
+        "wagtail_mcp_server.toolsets.redirects",
+        "RedirectsToolset",
+    ),
 }
 
 
@@ -59,11 +79,15 @@ def _load_enabled() -> list[str]:
     are almost always a missing optional dependency (e.g. the media
     toolset needing ``wagtail.images`` and ``wagtail.documents``).
     """
-    cfg = get_config()
+    # ``get_config`` is called for its validation side-effect; the per-slug
+    # enable check goes through :func:`toolset_enabled`, which handles both
+    # the legacy single ``enabled`` flag and the split-flag shape used by
+    # ``redirects`` (``enabled_read`` / ``enabled_write``). Either flag on
+    # triggers import; per-tool gating is the toolset's own responsibility.
+    get_config()
     loaded: list[str] = []
     for slug, (module_path, class_name) in _IMPORTS.items():
-        toolset_cfg = cfg["TOOLSETS"].get(slug) or {}
-        if not toolset_cfg.get("enabled", False):
+        if not toolset_enabled(slug):
             continue
         try:
             import_module(module_path)

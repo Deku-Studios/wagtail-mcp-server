@@ -2,12 +2,13 @@
 
 Off by default. Manages Wagtail images and documents over MCP:
 
-    media.images.list          List images (filter by collection + tag).
-    media.images.get           Full image payload with renditions.
+    media.images.list           List images (filter by collection + tag).
+    media.images.get            Full image payload with renditions.
     media.images.get_upload_url
-                               Mint a presigned PUT URL + upload token.
-    media.images.finalize      Register an uploaded object as a Wagtail Image.
-    media.images.update        Update title, alt-text, focal point, tags, collection.
+                                Mint a presigned PUT URL + upload token.
+    media.images.finalize       Register an uploaded object as a Wagtail Image.
+    media.images.update         Update title, alt-text, focal point, tags, collection.
+    media.images.focal_point    (v0.5) Narrow focal-point set/clear.
 
     media.documents.list
     media.documents.get
@@ -112,7 +113,7 @@ class MediaToolset(MCPToolset):
     """
 
     name = "media"
-    version = "0.4.0"
+    version = "0.5.0"
 
     # ============================================================ images
 
@@ -317,6 +318,63 @@ class MediaToolset(MCPToolset):
         if tags is not None:
             image.tags.set(tags)
             image.save()
+        return _serialize_image(image, include_renditions=True)
+
+    def media_images_focal_point(
+        self,
+        *,
+        id: int,
+        focal_point: dict[str, int] | None = None,
+    ) -> dict[str, Any]:
+        """Set or clear the focal point on an image.
+
+        New in v0.5. A narrow alternative to :meth:`media_images_update`
+        that only touches the four ``focal_point_*`` fields. Two reasons
+        to ship a separate tool rather than overload the existing update:
+
+        - **Validation.** This tool checks that the supplied coordinates
+          fit within the image's known dimensions before saving, so the
+          agent gets a clean error rather than a silent off-canvas
+          focus rectangle. ``media_images_update`` accepts the same
+          dict but does no bounds-checking (it is a "drop in whatever
+          you've got" surface).
+        - **Clearing.** Passing ``focal_point=None`` (or omitting it)
+          clears all four focal_point_* fields. ``media_images_update``
+          treats omission as "do not touch", so there is no way to
+          clear a focal point through it.
+
+        ``focal_point`` shape: ``{x, y, width, height}`` -- all integers,
+        x/y treated as the center of the focus rectangle (Wagtail's
+        convention). ``width`` and ``height`` are optional and default
+        to ``0`` when omitted.
+        """
+        user = getattr(self.request, "user", None)
+        _require_authenticated(user)
+
+        from wagtail.images import get_image_model
+
+        Image = get_image_model()
+        try:
+            image = Image.objects.select_related("collection").get(pk=id)
+        except Image.DoesNotExist as exc:
+            raise ValueError(f"Image id={id} does not exist.") from exc
+        if not _can_change_instance(user, image, Image):
+            raise PermissionDenied(
+                f"User lacks change permission for image {id}."
+            )
+
+        if focal_point:
+            _validate_focal_point(focal_point, image)
+            _apply_focal_point_on_instance(image, focal_point)
+        else:
+            # Explicit clear: null all four fields. This is the contract
+            # difference from media_images_update -- omitting clears here.
+            image.focal_point_x = None
+            image.focal_point_y = None
+            image.focal_point_width = None
+            image.focal_point_height = None
+
+        image.save()
         return _serialize_image(image, include_renditions=True)
 
     # ============================================================ documents
@@ -809,6 +867,56 @@ def _apply_focal_point_on_instance(
         key = attr.replace("focal_point_", "")
         if key in focal_point:
             setattr(image, attr, int(focal_point[key]))
+
+
+def _validate_focal_point(focal_point: dict[str, int], image: Any) -> None:
+    """Reject focal-point payloads that don't fit on the image canvas.
+
+    Used only by :meth:`MediaToolset.media_images_focal_point`; the
+    general-purpose ``media_images_update`` is intentionally lenient and
+    skips this check.
+
+    - x and y are required and must be non-negative integers.
+    - x must lie within ``[0, image.width]`` (when width is known).
+    - y must lie within ``[0, image.height]`` (when height is known).
+    - width and height are optional but must be non-negative integers
+      when provided. Both default to ``0`` if omitted, which means
+      "point only, no rect" -- Wagtail handles that fine.
+
+    Vector images (SVG) often have ``width = height = None``; in that
+    case bounds-checking is skipped because we have nothing to check
+    against. The agent gets the same flexibility a human would.
+    """
+    if not isinstance(focal_point, dict):
+        raise ValueError(
+            f"focal_point must be a dict; got {type(focal_point).__name__}."
+        )
+    for key in ("x", "y"):
+        if key not in focal_point:
+            raise ValueError(f"focal_point requires '{key}'.")
+        value = focal_point[key]
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            raise ValueError(
+                f"focal_point.{key} must be a non-negative integer; got {value!r}."
+            )
+    for key in ("width", "height"):
+        if key in focal_point:
+            value = focal_point[key]
+            if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+                raise ValueError(
+                    f"focal_point.{key} must be a non-negative integer; got {value!r}."
+                )
+
+    img_width = getattr(image, "width", None)
+    img_height = getattr(image, "height", None)
+    if img_width and focal_point["x"] > img_width:
+        raise ValueError(
+            f"focal_point.x={focal_point['x']} exceeds image width {img_width}."
+        )
+    if img_height and focal_point["y"] > img_height:
+        raise ValueError(
+            f"focal_point.y={focal_point['y']} exceeds image height {img_height}."
+        )
 
 
 # ---------------------------------------------------------------- paginators

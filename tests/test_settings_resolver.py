@@ -31,6 +31,11 @@ def test_defaults_applied_when_no_override():
     assert cfg["LIMITS"]["ALLOW_DESTRUCTIVE"] is False
     assert cfg["RICHTEXT_FORMAT"] == "html"
     assert cfg["WRITE_VALIDATION"] == "strict"
+    # v0.5: OTel emission is on by default. Safe: no-op on hosts with
+    # no SDK configured.
+    assert cfg["AUDIT"]["EMIT_OTEL"] is True
+    assert cfg["AUDIT"]["ENABLED"] is True
+    assert cfg["AUDIT"]["RETENTION_DAYS"] == 90
 
 
 def test_write_toolsets_off_by_default():
@@ -45,6 +50,9 @@ def test_read_toolsets_on_by_default():
     cfg = wms_settings.get_config()
     assert cfg["TOOLSETS"]["pages_query"]["enabled"] is True
     assert cfg["TOOLSETS"]["seo_query"]["enabled"] is True
+    # v0.5: collections_query + snippets_query ship on-by-default, read-only.
+    assert cfg["TOOLSETS"]["collections_query"]["enabled"] is True
+    assert cfg["TOOLSETS"]["snippets_query"]["enabled"] is True
 
 
 @override_settings(WAGTAIL_MCP_SERVER={"AUTH": {"BACKEND": "NotARealBackend"}})
@@ -91,3 +99,48 @@ def test_toolset_enabled_helper():
     assert wms_settings.toolset_enabled("pages_query") is True
     assert wms_settings.toolset_enabled("pages_write") is False
     assert wms_settings.toolset_enabled("does_not_exist") is False
+
+
+def test_redirects_split_flag_defaults():
+    """v0.5: ``redirects`` is the only toolset with the split-flag shape.
+
+    Reads on by default; writes off. Both the combined ``toolset_enabled``
+    helper (which ORs the two flags for the registration decision) and
+    the per-side helpers must reflect this.
+    """
+    cfg = wms_settings.get_config()
+    entry = cfg["TOOLSETS"]["redirects"]
+    assert entry == {"enabled_read": True, "enabled_write": False}
+
+    assert wms_settings.toolset_enabled("redirects") is True
+    assert wms_settings.toolset_read_enabled("redirects") is True
+    assert wms_settings.toolset_write_enabled("redirects") is False
+
+
+@override_settings(
+    WAGTAIL_MCP_SERVER={
+        "TOOLSETS": {"redirects": {"enabled_read": False, "enabled_write": False}}
+    }
+)
+def test_redirects_both_flags_off_disables_toolset():
+    """If an operator turns both sides off, the toolset should be considered
+    fully disabled so ``mcp.py`` skips the import."""
+    wms_settings.reset_cache()
+    assert wms_settings.toolset_enabled("redirects") is False
+    assert wms_settings.toolset_read_enabled("redirects") is False
+    assert wms_settings.toolset_write_enabled("redirects") is False
+
+
+@override_settings(
+    WAGTAIL_MCP_SERVER={
+        "TOOLSETS": {"redirects": {"enabled_read": False, "enabled_write": True}}
+    }
+)
+def test_redirects_write_only_still_enables_registration():
+    """Asymmetric: writes on but reads off. ``toolset_enabled`` should still
+    return True so the module is imported, and per-side gating keeps
+    reads locked off at dispatch time."""
+    wms_settings.reset_cache()
+    assert wms_settings.toolset_enabled("redirects") is True
+    assert wms_settings.toolset_read_enabled("redirects") is False
+    assert wms_settings.toolset_write_enabled("redirects") is True

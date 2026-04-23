@@ -495,6 +495,81 @@ def test_token_payload_is_json_with_expected_keys(monkeypatch):
     }
 
 
+# ---------------------------------------------------- media.images.focal_point
+
+
+@pytest.mark.django_db
+def test_focal_point_sets_on_existing_image(
+    toolset, bind_user, superuser, image_obj
+):
+    payload = bind_user(toolset, superuser).media_images_focal_point(
+        id=image_obj.pk,
+        focal_point={"x": 0, "y": 0, "width": 1, "height": 1},
+    )
+    assert payload["focal_point"] == {"x": 0, "y": 0, "width": 1, "height": 1}
+
+
+@pytest.mark.django_db
+def test_focal_point_clears_when_none(
+    toolset, bind_user, superuser, image_obj
+):
+    """Omitting (or passing None for) focal_point should null out the four fields."""
+    bound = bind_user(toolset, superuser)
+    # First set a focal point so we have something to clear.
+    bound.media_images_focal_point(
+        id=image_obj.pk, focal_point={"x": 0, "y": 0, "width": 1, "height": 1}
+    )
+    cleared = bound.media_images_focal_point(id=image_obj.pk, focal_point=None)
+    assert cleared["focal_point"] is None
+
+
+@pytest.mark.django_db
+def test_focal_point_rejects_negative_coordinate(
+    toolset, bind_user, superuser, image_obj
+):
+    with pytest.raises(ValueError, match="non-negative"):
+        bind_user(toolset, superuser).media_images_focal_point(
+            id=image_obj.pk, focal_point={"x": -1, "y": 0}
+        )
+
+
+@pytest.mark.django_db
+def test_focal_point_rejects_out_of_bounds(
+    toolset, bind_user, superuser, image_obj
+):
+    """1x1 image should reject any x/y greater than 1."""
+    with pytest.raises(ValueError, match="exceeds image"):
+        bind_user(toolset, superuser).media_images_focal_point(
+            id=image_obj.pk, focal_point={"x": 999, "y": 0}
+        )
+
+
+@pytest.mark.django_db
+def test_focal_point_requires_x_and_y(
+    toolset, bind_user, superuser, image_obj
+):
+    with pytest.raises(ValueError, match="requires 'x'"):
+        bind_user(toolset, superuser).media_images_focal_point(
+            id=image_obj.pk, focal_point={"y": 0}
+        )
+
+
+@pytest.mark.django_db
+def test_focal_point_anonymous_blocked(toolset, bind_user, image_obj):
+    with pytest.raises(PermissionDenied):
+        bind_user(toolset, None).media_images_focal_point(
+            id=image_obj.pk, focal_point={"x": 0, "y": 0}
+        )
+
+
+@pytest.mark.django_db
+def test_focal_point_missing_image_raises(toolset, bind_user, superuser):
+    with pytest.raises(ValueError, match="does not exist"):
+        bind_user(toolset, superuser).media_images_focal_point(
+            id=999_999, focal_point={"x": 0, "y": 0}
+        )
+
+
 # --------------------------------------------------- image fixture sanity
 
 

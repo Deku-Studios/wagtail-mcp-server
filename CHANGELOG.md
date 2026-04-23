@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-04-22
+
+### Added
+- **`CollectionsQueryToolset`** (on by default): `collections.list`, `collections.get`, `collections.tree`. Read-only access to Wagtail's Collection tree — the unit of access control for the media toolset and a frequent ask from agents that want to scope listings to a specific section. Tree assembly happens in Python after a single pre-fetch; `collections.get` returns `None` (not an error) for unknown ids.
+- **`SnippetsQueryToolset`** (on by default): `snippets.types`, `snippets.list`, `snippets.get`. Enumerates `@register_snippet` models, paginates instances, and returns a single instance by type + id. Reads `api_fields` if defined, falls back to plain Django fields. M2M is intentionally skipped (round-trip is ambiguous in v0.5).
+- **`RedirectsToolset`** with split-flag config: `enabled_read` on by default, `enabled_write` off by default. Read tools `redirects.list` / `redirects.get`; write tools `redirects.create` / `redirects.update` / `redirects.delete`. Delete is gated by the three-gate destructive pattern (toolset + `LIMITS.ALLOW_DESTRUCTIVE` + `wagtailredirects.delete_redirect`). The split-flag pattern is `redirects`-only in v0.5; other toolsets continue using the single `enabled` key.
+- **`pages.preview`** under `pages_query`: returns the latest *revision* state for a page rather than the published state. Requires `view_revision`. Pairs with `seo.audit` for pre-publish QA without a publish step.
+- **`seo.sitemap.regenerate`** under `seo_write`: site-wide sitemap regeneration trigger. Counts live pages, optionally clears configured cache keys, fires the new `sitemap_regenerated` signal so host projects can plug in CDN purge / reverse-proxy invalidation. Independent of `wagtail.contrib.sitemaps`.
+- **`media.images.focal_point`**: sets the focal-point rectangle Wagtail uses for fill-size renditions, with bounds validation against the source image. Distinct from `media.images.update`, which is lenient about partial-state field updates.
+- **`mcp_prune_audit` management command**: enforces `AUDIT.RETENTION_DAYS` against the `ToolCall` table. Flags: `--dry-run`, `--batch-size N`, `--older-than DAYS`. Designed to be wired into cron or Celery beat; the library does not run a scheduler of its own.
+- **Standalone `wagtail-mcp-serve` console script**: bundles a self-contained Django settings module (`wagtail_mcp_server.standalone.settings`), a per-OS data dir (XDG on Linux, `~/Library/Application Support` on macOS, `%LOCALAPPDATA%` on Windows), a sticky `SECRET_KEY` persisted to a 0600 file, and an idempotent first-boot bootstrap that mints a superuser plus an MCP token (printed to **stderr** — stdout is reserved for MCP frames). Default toolset surface is reads-only; flips to writes via `WMS_OVERRIDE_*` env vars or a custom settings module. New flag set: `--stdio` / `--http`, `--host`, `--port`, `--data-dir`, `--settings`, `--no-migrate`, `--no-bootstrap`, `--bootstrap-username`.
+- **MkDocs Material documentation site** under `docs/`, with a `.github/workflows/docs.yml` that builds + deploys to GitHub Pages on push to main. Per-toolset reference pages, operations pages (auditing, OpenTelemetry, tokens), and a dedicated standalone-runtime guide.
+- 17 in-process tests for the standalone runtime (`tests/test_standalone.py`) and 8 subprocess smoke tests (`tests/test_standalone_subprocess.py`) covering `--help`, full bootstrap, idempotence, sticky `SECRET_KEY`, custom settings, mutex flag rejection. New HTTP endpoint tests for the valid-token gate, impersonation regression, empty-auth-classes path, and `_load_enabled` toolset toggle. Full suite: 155 → 200+, all green.
+
+### Changed
+- **`AUDIT.EMIT_OTEL` defaults to `True`**. The library imports only the OpenTelemetry *API* (never the SDK), so when no SDK is configured in the host process spans go to the API's no-op tracer for ~µs of overhead and zero network I/O. Hosts that have wired up a tracer provider get spans for free; hosts that haven't pay nothing. Set to `False` to suppress emission explicitly.
+- `registry.TOOLSET_MAP` now includes `collections_query`, `snippets_query`, and `redirects` alongside the v0.4 toolsets. `registry.loaded_toolsets()` continues to be the supported way to introspect the live surface.
+- `pyproject.toml` adds a `docs` optional-dependencies group (`mkdocs`, `mkdocs-material`, `pymdown-extensions`) for the docs build pipeline. A new `[project.scripts]` entry registers `wagtail-mcp-serve` alongside the existing `wagtail-mcp-server` dispatcher.
+
+### Notes for host projects
+- **Action required for `collections_query` / `snippets_query`**: these are on by default. If you have a strict allow-list of toolsets in your `WAGTAIL_MCP_SERVER["TOOLSETS"]`, you must explicitly disable them or include them — they are not silently grandfathered in.
+- **Action required for `redirects`**: the split-flag pattern means existing config that passed `{"enabled": True}` for redirects will be ignored; use `{"enabled_read": True, "enabled_write": False}` instead. The library logs a warning at startup if it sees the old shape.
+- **Action recommended for `AUDIT.EMIT_OTEL`**: hosts that want to suppress emission must now do so explicitly. The default flip is safe — emission to a no-op tracer costs nothing — but it changes observable behavior for hosts that have an OTel SDK configured but didn't expect MCP traffic in their span ingest.
+- **Standalone runtime is for laptops and demos**, not production. For production, embed the app in your existing Wagtail project so you get its database, auth, and asset storage. See `docs/standalone.md` for the full caveats list.
+- No new migrations. Upgrading from 0.4.0 requires no DB changes.
+
 ## [0.4.0] - 2026-04-22
 
 ### Added

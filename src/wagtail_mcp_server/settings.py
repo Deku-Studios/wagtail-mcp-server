@@ -8,7 +8,10 @@ Design goals:
     - One namespace, one dict. Nothing leaks into the Django settings top
       level except the dict itself.
     - Safe defaults: every write toolset is off, destructive ops are off,
-      impersonation is off, OTel emission is off.
+      impersonation is off. OTel emission is on by default as of v0.5:
+      it is a no-op on hosts that have not configured an OpenTelemetry
+      SDK, so the default costs nothing but unlocks observability for
+      hosts that do.
     - Resolved once at startup. Mutating the settings dict at runtime is not
       supported.
 """
@@ -30,10 +33,18 @@ DEFAULTS: dict[str, Any] = {
     "TOOLSETS": {
         "pages_query": {"enabled": True},
         "seo_query": {"enabled": True},
+        # New in v0.5. Read-only; safe to ship on by default.
+        "collections_query": {"enabled": True},
+        "snippets_query": {"enabled": True},
         "pages_write": {"enabled": False},
         "workflow": {"enabled": False},
         "media": {"enabled": False},
         "seo_write": {"enabled": False},
+        # New in v0.5. ``redirects`` is the only toolset that splits
+        # read and write onto separate flags: many operators want to let
+        # agents *see* existing redirects without also granting them the
+        # ability to mint new ones. Reads on by default, writes off.
+        "redirects": {"enabled_read": True, "enabled_write": False},
     },
     "LIMITS": {
         "MAX_PAGE_SIZE": 50,
@@ -46,7 +57,10 @@ DEFAULTS: dict[str, Any] = {
     "AUDIT": {
         "ENABLED": True,
         "RETENTION_DAYS": 90,
-        "EMIT_OTEL": False,
+        # On by default as of v0.5. No-op when the host process has not
+        # configured an OpenTelemetry SDK, so the default is safe for
+        # every install. Set to False explicitly to suppress.
+        "EMIT_OTEL": True,
     },
 }
 
@@ -125,6 +139,43 @@ def reset_cache() -> None:
 
 
 def toolset_enabled(name: str) -> bool:
-    """True iff toolset ``name`` is explicitly enabled in config."""
+    """True iff toolset ``name`` is enabled for at least one of read or write.
+
+    Treats the split-flag shape (``enabled_read`` / ``enabled_write``,
+    currently only ``redirects``) and the single-flag shape uniformly:
+    the toolset is "enabled" for registration purposes if *any* of its
+    flags is on, because ``mcp.py`` only needs to decide whether to
+    import the module. Per-tool gating is handled inside the toolset.
+    """
     cfg = get_config()
-    return bool(cfg["TOOLSETS"].get(name, {}).get("enabled", False))
+    entry = cfg["TOOLSETS"].get(name, {})
+    if "enabled" in entry:
+        return bool(entry["enabled"])
+    return bool(entry.get("enabled_read") or entry.get("enabled_write"))
+
+
+def toolset_read_enabled(name: str) -> bool:
+    """True iff read-side tools of toolset ``name`` should dispatch.
+
+    For single-flag toolsets this mirrors :func:`toolset_enabled`; for
+    the split-flag ``redirects`` toolset it isolates reads from writes.
+    """
+    cfg = get_config()
+    entry = cfg["TOOLSETS"].get(name, {})
+    if "enabled_read" in entry:
+        return bool(entry["enabled_read"])
+    return bool(entry.get("enabled", False))
+
+
+def toolset_write_enabled(name: str) -> bool:
+    """True iff write-side tools of toolset ``name`` should dispatch.
+
+    For single-flag toolsets this mirrors :func:`toolset_enabled`; for
+    the split-flag ``redirects`` toolset it gates mutating tools
+    independently of read-side ones.
+    """
+    cfg = get_config()
+    entry = cfg["TOOLSETS"].get(name, {})
+    if "enabled_write" in entry:
+        return bool(entry["enabled_write"])
+    return bool(entry.get("enabled", False))

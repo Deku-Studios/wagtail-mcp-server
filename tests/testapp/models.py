@@ -20,6 +20,7 @@ from wagtail.fields import StreamField
 from wagtail.images.api.fields import ImageRenditionField
 from wagtail.images.blocks import ImageChooserBlock
 from wagtail.models import Page
+from wagtail.snippets.models import register_snippet
 
 
 class HeadingStruct(blocks.StructBlock):
@@ -113,6 +114,26 @@ class TestRenditionPage(Page):
         verbose_name = "Test Rendition Page"
 
 
+@register_snippet
+class TestAuthor(models.Model):
+    """Minimal snippet model used by snippets.* query tests.
+
+    Declared as a snippet via ``register_snippet`` so Wagtail's
+    ``get_snippet_models()`` enumerates it. The model shape is kept
+    deliberately flat — one CharField plus the implicit pk — because
+    the snippets toolset's job is to proxy the model surface, not to
+    exercise exotic field types.
+    """
+
+    name = models.CharField(max_length=100)
+
+    def __str__(self) -> str:
+        return self.name
+
+    class Meta:
+        verbose_name = "Test Author"
+
+
 # Suppress an "unused import" lint warning: ImageRenditionField is kept
 # in scope so future tests that exercise the rendition-field shape can
 # import it from one place. This pattern matches Wagtail's own test apps.
@@ -123,6 +144,7 @@ __all__ = [
     "HeadingStruct",
     "INNER_STREAM_BLOCKS",
     "ImageRenditionField",
+    "TestAuthor",
     "TestRenditionPage",
     "TestStreamPage",
 ]

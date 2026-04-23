@@ -18,7 +18,11 @@ from __future__ import annotations
 import pytest
 from django.core.exceptions import PermissionDenied
 
-from wagtail_mcp_server.toolsets.seo_write import SEO_FIELDS, SEOWriteToolset
+from wagtail_mcp_server.toolsets.seo_write import (
+    SEO_FIELDS,
+    SEOWriteToolset,
+    sitemap_regenerated,
+)
 
 
 @pytest.fixture
@@ -138,3 +142,98 @@ def test_findings_reflect_post_write_state(
     )
     codes = {f["code"] for f in result["findings"]}
     assert "title_too_short" in codes
+
+
+# ----------------------------------------------------- seo.sitemap.regenerate
+
+
+@pytest.mark.django_db
+def test_sitemap_regenerate_returns_live_page_count(
+    toolset, bind_user, superuser, stream_page
+):
+    """Happy path: walks live queryset and returns count + timestamp."""
+    result = bind_user(toolset, superuser).seo_sitemap_regenerate()
+    assert result["regenerated"] is True
+    assert result["page_count"] >= 1  # at least the test stream_page
+    assert isinstance(result["generated_at"], str)
+    assert result["cache_keys_busted"] == []
+
+
+@pytest.mark.django_db
+def test_sitemap_regenerate_busts_supplied_cache_keys(
+    toolset, bind_user, superuser, stream_page, settings
+):
+    """The list of keys passed in comes back in cache_keys_busted, in order."""
+    # Install an in-memory cache so delete() is observable.
+    settings.CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "sitemap-regenerate-test",
+        }
+    }
+
+    from django.core.cache import cache
+
+    cache.set("sitemap-pages", "OLD", timeout=None)
+    cache.set("sitemap-images", "OLD", timeout=None)
+    cache.set("unrelated-key", "KEEP", timeout=None)
+
+    result = bind_user(toolset, superuser).seo_sitemap_regenerate(
+        cache_keys=["sitemap-pages", "sitemap-images"],
+    )
+    assert result["cache_keys_busted"] == ["sitemap-pages", "sitemap-images"]
+    assert cache.get("sitemap-pages") is None
+    assert cache.get("sitemap-images") is None
+    # Keys we didn't list should be untouched.
+    assert cache.get("unrelated-key") == "KEEP"
+
+
+@pytest.mark.django_db
+def test_sitemap_regenerate_rejects_anonymous(toolset, bind_user):
+    with pytest.raises(PermissionDenied):
+        bind_user(toolset, None).seo_sitemap_regenerate()
+
+
+@pytest.mark.django_db
+def test_sitemap_regenerate_rejects_non_admin(toolset, bind_user):
+    """A plain authenticated user without admin access should be rejected.
+
+    This is what keeps an MCP agent bound to a low-privilege account
+    from blowing away the host's sitemap cache.
+    """
+    from django.contrib.auth import get_user_model
+
+    User = get_user_model()
+    bob = User.objects.create_user(
+        username="bob",
+        password="x",  # noqa: S106
+        is_staff=False,
+    )
+    with pytest.raises(PermissionDenied, match="access_admin"):
+        bind_user(toolset, bob).seo_sitemap_regenerate()
+
+
+@pytest.mark.django_db
+def test_sitemap_regenerate_fires_signal(
+    toolset, bind_user, superuser, stream_page
+):
+    """Signal contract: hosts subscribe to bust their own caches."""
+    calls: list[dict] = []
+
+    def _handler(sender, **kwargs):
+        calls.append({"sender": sender, **kwargs})
+
+    sitemap_regenerated.connect(_handler, weak=False)
+    try:
+        bind_user(toolset, superuser).seo_sitemap_regenerate(
+            cache_keys=["k1"],
+        )
+    finally:
+        sitemap_regenerated.disconnect(_handler)
+
+    assert len(calls) == 1
+    (payload,) = calls
+    assert payload["sender"] is SEOWriteToolset
+    assert payload["user"] == superuser
+    assert payload["page_count"] >= 1
+    assert payload["cache_keys_busted"] == ("k1",)

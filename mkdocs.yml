@@ -1,0 +1,80 @@
+site_name: wagtail-mcp-server
+site_description: Expose a Wagtail CMS as a Model Context Protocol (MCP) server for AI agents.
+site_url: https://deku-studios.github.io/wagtail-mcp-server/
+repo_url: https://github.com/Deku-Studios/wagtail-mcp-server
+repo_name: Deku-Studios/wagtail-mcp-server
+edit_uri: edit/main/docs/
+copyright: Copyright &copy; 2026 Deku Studios. BSD-3-Clause.
+
+theme:
+  name: material
+  features:
+    - content.code.copy
+    - content.action.edit
+    - navigation.sections
+    - navigation.expand
+    - navigation.instant
+    - navigation.top
+    - toc.follow
+    - search.suggest
+  palette:
+    - scheme: default
+      primary: deep purple
+      accent: deep purple
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - scheme: slate
+      primary: deep purple
+      accent: deep purple
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+
+plugins:
+  - search
+
+nav:
+  - Home: index.md
+  - Getting started: getting-started.md
+  - Standalone runtime: standalone.md
+  - Configuration: configuration.md
+  - Toolsets:
+      - Overview: toolsets/index.md
+      - Pages (read): toolsets/pages-query.md
+      - Pages (write): toolsets/pages-write.md
+      - SEO: toolsets/seo.md
+      - Media: toolsets/media.md
+      - Workflow: toolsets/workflow.md
+      - Collections + Snippets: toolsets/collections-snippets.md
+      - Redirects: toolsets/redirects.md
+  - Operations:
+      - Auditing: operations/audit.md
+      - OpenTelemetry: operations/otel.md
+      - Tokens: operations/tokens.md
+  - Changelog: changelog.md
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/Deku-Studios/wagtail-mcp-server
+    - icon: fontawesome/brands/python
+      link: https://pypi.org/project/wagtail-mcp-server/

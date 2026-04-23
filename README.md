@@ -114,10 +114,12 @@ WAGTAIL_MCP_SERVER = {
     "AUDIT": {
         "ENABLED": True,
         "RETENTION_DAYS": 90,
-        # When True, every tool call emits a span named
-        # `wagtail_mcp_server.tool.<toolset>.<tool>` via the host process's
-        # OpenTelemetry SDK.
-        "EMIT_OTEL": False,
+        # On by default as of v0.5. When True, every tool call emits a
+        # span named `wagtail_mcp_server.tool.<toolset>.<tool>` via the
+        # host process's OpenTelemetry SDK. No-op on hosts that have not
+        # configured an OTel SDK, so the default is safe everywhere.
+        # Set to False to suppress emission explicitly.
+        "EMIT_OTEL": True,
     },
 }
 ```
@@ -208,11 +210,11 @@ Any client that speaks MCP streamable HTTP can connect directly. POST to `/mcp/`
 - Write toolsets are individually opt-in. Enabling `pages_write` does not enable `workflow` or `media`.
 - Destructive operations (delete page, hard-delete image) require `LIMITS.ALLOW_DESTRUCTIVE = True` in addition to the toolset flag and the user's Wagtail permission. Three gates.
 - `media` refuses to mint presigned upload URLs unless Django's `default_storage` is `django-storages`' `S3Storage` (or a compatible backend). `FileSystemStorage` raises loudly — loud failure beats silent misconfiguration in local dev.
-- Every tool call is logged to the `ToolCall` audit table with inputs, outputs, latency, and user. Retention is configurable.
+- Every tool call is logged to the `ToolCall` audit table with inputs, outputs, latency, and user. Retention is configurable via `AUDIT.RETENTION_DAYS`; prune on a schedule with `python manage.py mcp_prune_audit` (supports `--dry-run`, `--batch-size`, `--older-than DAYS`).
 
 ## Observability
 
-OpenTelemetry emission is built in and gated behind `AUDIT.EMIT_OTEL`. When enabled, every tool call emits a span named `wagtail_mcp_server.tool.<toolset>.<tool>`. The host app owns the exporter; the server attaches to whatever OTel SDK is configured in the Django process.
+OpenTelemetry emission is on by default as of v0.5 and gated behind `AUDIT.EMIT_OTEL`. When enabled, every tool call emits a span named `wagtail_mcp_server.tool.<toolset>.<tool>`. The host app owns the exporter; the server attaches to whatever OTel SDK is configured in the Django process. When the host has no OTel SDK configured, emission is a silent no-op.
 
 ## Development
 
@@ -232,8 +234,8 @@ CI runs on Python 3.11 / 3.12 against Wagtail 7.3.1 and Wagtail main.
 - **v0.1** (shipped): `PageQueryToolset`, read-path serializers, JSON Schema generator.
 - **v0.2** (shipped): `PageWriteToolset`, `SEOQueryToolset`, StreamField write-path validator, audit migrations.
 - **v0.3** (shipped): `WorkflowToolset`, `MediaToolset` (presign + finalize flow), `SEOWriteToolset`.
-- **v0.4** (current): HTTP transport wired, `UserTokenDRFAuth` adapter, direct `MCPToolset` inheritance, config-gated autodiscover.
-- **v0.5** (planned): CLI entrypoint for stdio transport, OTel emission on by default, Collections + search integration, sitemap write, Wagtail 7.4 LTS floor.
+- **v0.4** (shipped): HTTP transport wired, `UserTokenDRFAuth` adapter, direct `MCPToolset` inheritance, config-gated autodiscover.
+- **v0.5** (planned, **final for launch**): standalone CLI for stdio transport, OTel emission on by default, `CollectionsQueryToolset`, `SnippetsQueryToolset` (read-only), `RedirectsToolset` (read on, write off), `seo.sitemap.regenerate`, `pages.preview`, `media.images.focal_point` updates, `mcp_prune_audit` management command, full HTTP `tools/list` + write + impersonation tests, MkDocs site, Wagtail 7.4 LTS floor (gated on 2026-05-04 release). PyPI publish deferred past v0.5 pending several months of `lex-platform` dogfooding. See the v0.5 spec in `lex-drive/documents/wagtail-mcp-server-v0.5-spec.md` (internal).
 
 ## Contributing
 

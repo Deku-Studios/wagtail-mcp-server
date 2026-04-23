@@ -76,6 +76,45 @@ def test_get_requires_at_least_one_lookup(toolset, bind_user):
         bind_user(toolset, None).pages_get()
 
 
+# -------------------------------------------------------------------- pages.preview
+
+
+@pytest.mark.django_db
+def test_preview_matches_get_when_no_pending_draft(
+    toolset, bind_user, stream_page
+):
+    """With no unpublished revision, preview should match published content."""
+    live = bind_user(toolset, None).pages_get(id=stream_page.pk)
+    preview = bind_user(toolset, None).pages_preview(id=stream_page.pk)
+    assert preview is not None
+    # Compare a stable subset (ids, slugs) rather than the full payload so
+    # generated timestamps don't flake the test.
+    assert preview["id"] == live["id"]
+    assert preview["slug"] == live["slug"]
+
+
+@pytest.mark.django_db
+def test_preview_returns_none_for_missing_id(toolset, bind_user):
+    assert bind_user(toolset, None).pages_preview(id=999999) is None
+
+
+@pytest.mark.django_db
+def test_preview_reflects_unpublished_edit(toolset, bind_user, stream_page):
+    """A draft edit should appear in preview but not in pages.get."""
+    # Save a revision with a changed title, but don't publish.
+    stream_page.title = "Updated Title (draft)"
+    stream_page.save_revision()
+
+    live = bind_user(toolset, None).pages_get(id=stream_page.pk)
+    preview = bind_user(toolset, None).pages_preview(id=stream_page.pk)
+
+    assert preview is not None
+    assert preview["title"] == "Updated Title (draft)"
+    # Published instance should still show the original title because we
+    # never published the revision.
+    assert live["title"] == "Stream"
+
+
 # ---------------------------------------------------------------------- pages.tree
 
 

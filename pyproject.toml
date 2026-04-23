@@ -50,6 +50,14 @@ dev = [
     "ruff>=0.7,<0.8",
     "wagtail-factories>=4.2,<5.0",
 ]
+# Documentation site (built and deployed via .github/workflows/docs.yml).
+# Pinned to a Material major so a theme refactor upstream can't break
+# the build out from under us between v0.5 and v0.6.
+docs = [
+    "mkdocs>=1.6,<2.0",
+    "mkdocs-material>=9.5,<10.0",
+    "pymdown-extensions>=10.7,<11.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/Deku-Studios/wagtail-mcp-server"
@@ -59,6 +67,10 @@ Discussions = "https://github.com/Deku-Studios/wagtail-mcp-server/discussions"
 
 [project.scripts]
 wagtail-mcp-server = "wagtail_mcp_server.cli:main"
+# v0.5: zero-config standalone runtime. Bundles its own SQLite settings
+# module so `pip install wagtail-mcp-server && wagtail-mcp-serve --stdio`
+# works without writing a Django project.
+wagtail-mcp-serve = "wagtail_mcp_server.standalone.serve:_cli_entry"
 
 [tool.hatch.version]
 path = "src/wagtail_mcp_server/__init__.py"

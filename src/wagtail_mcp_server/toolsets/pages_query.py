@@ -185,6 +185,42 @@ class PageQueryToolset(MCPToolset):
             "descendants": [serialize_page_ref(d.specific) for d in descendants.order_by("path")],
         }
 
+    # --------------------------------------------------------------- pages.preview
+
+    def pages_preview(
+        self,
+        *,
+        id: int,
+    ) -> dict[str, Any] | None:
+        """Return the serialized content of the page's latest revision.
+
+        New in v0.5. Unlike :meth:`pages_get`, which returns the currently
+        published instance, this returns the payload of the *latest*
+        revision -- including any unpublished draft edits. Agents use this
+        to preview what a published update would look like before calling
+        ``pages.publish``.
+
+        Returns ``None`` for an unknown id or when the caller cannot view
+        the page.
+
+        Permission model: reads require the ``view_page`` permission on
+        the target page (same as ``pages.get``). Viewing a draft is
+        reasonable for any caller who can view the published page,
+        because the draft will be the next published state on publish.
+        """
+        user = getattr(self.request, "user", None)
+        page = self._get_page_or_none(id)
+        if page is None or not _user_can_view(user, page):
+            return None
+
+        revision = page.get_latest_revision()
+        if revision is None:
+            # No revision yet (brand-new page, never saved as draft); fall
+            # back to the published instance so callers always get a payload.
+            return self.serializer.serialize(page.specific)
+        preview_page = revision.as_object()
+        return self.serializer.serialize(preview_page)
+
     # ---------------------------------------------------------------- pages.search
 
     def pages_search(
