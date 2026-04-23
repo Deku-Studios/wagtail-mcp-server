@@ -23,6 +23,10 @@ def test_all_toolsets_importable():
         "media",
         "seo_query",
         "seo_write",
+        # v0.5 additions:
+        "collections_query",
+        "snippets_query",
+        "redirects",
     ):
         mod = importlib.import_module(f"wagtail_mcp_server.toolsets.{name}")
         assert mod is not None
@@ -72,6 +76,12 @@ def test_load_enabled_runs_cleanly(settings):
             "seo_write": {"enabled": True},
             "workflow": {"enabled": True},
             "media": {"enabled": True},
+            # v0.5 additions. ``redirects`` is the only toolset using
+            # the split-flag shape: turning both halves on still
+            # registers the slug exactly once in ``loaded_toolsets``.
+            "collections_query": {"enabled": True},
+            "snippets_query": {"enabled": True},
+            "redirects": {"enabled_read": True, "enabled_write": True},
         },
     }
     reset_cache()
@@ -84,6 +94,9 @@ def test_load_enabled_runs_cleanly(settings):
             "seo_write",
             "workflow",
             "media",
+            "collections_query",
+            "snippets_query",
+            "redirects",
         }
     finally:
         settings.WAGTAIL_MCP_SERVER = {}
@@ -93,10 +106,12 @@ def test_load_enabled_runs_cleanly(settings):
 def test_load_enabled_skips_disabled(settings):
     """Toolsets explicitly set to ``enabled: False`` must not load.
 
-    ``pages_query`` and ``seo_query`` are on in the shipped defaults, so
-    an effective "only pages_query" setup must turn the sibling read
-    toolset off explicitly. This exercises the deep-merge path and proves
-    the loader respects an explicit opt-out.
+    ``pages_query``, ``seo_query``, ``collections_query``,
+    ``snippets_query``, and the read half of ``redirects`` are on in the
+    shipped defaults, so an effective "only pages_query" setup must turn
+    every sibling read toolset off explicitly. This exercises the
+    deep-merge path and proves the loader respects an explicit opt-out
+    -- including the split-flag shape used by ``redirects``.
     """
     from wagtail_mcp_server.mcp import _load_enabled
     from wagtail_mcp_server.settings import reset_cache
@@ -105,6 +120,11 @@ def test_load_enabled_skips_disabled(settings):
         "TOOLSETS": {
             "pages_query": {"enabled": True},
             "seo_query": {"enabled": False},
+            # v0.5 read-side defaults: explicitly opt out so the
+            # "only pages_query" assertion below holds.
+            "collections_query": {"enabled": False},
+            "snippets_query": {"enabled": False},
+            "redirects": {"enabled_read": False, "enabled_write": False},
             # pages_write/seo_write/workflow/media default to disabled.
         },
     }
