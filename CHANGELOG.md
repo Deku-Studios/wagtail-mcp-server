@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-04-26
+
+### Changed
+- **Django pin widened from `>=5.0,<5.2` to `>=5.0,<6.0`** so the library installs on Django 5.2.x. Required for host projects running Python 3.14: Django 5.1 has a `copy(super())` pattern in `django.template.context.BaseContext.__copy__` that Python 3.14 broke, surfacing as `AttributeError: 'super' object has no attribute 'dicts' and no __dict__ for setting new attributes` on Wagtail's `/cms/login/` template render. Django 5.2 fixed this. Wagtail 7.3 already supports Django 5.2 per its compatibility matrix; the library itself uses no Django 5.1-only APIs, so the previous pin was conservatism, not principle. Discovered while integrating Wagtail into the Claret project (Python 3.14 + Django 5.1.15 + Wagtail 7.3); see `claret-platform-sprint-06.md` §3.3 #14 for the host-project context.
+- **Trove classifiers extended** with `Framework :: Django :: 5.2`, `Programming Language :: Python :: 3.13`, and `Programming Language :: Python :: 3.14` to reflect the broader compat surface.
+
+### Notes for host projects
+- No code changes. This is a packaging-only release.
+- Lex (the original adopter) currently pins to v0.5.1; v0.5.2 is opt-in for host projects that need Django 5.2 or Python 3.14 support. Bumping is strictly safe; the library binary is byte-identical to v0.5.1.
+
 ## [0.5.1] - 2026-04-23
 
 ### Fixed
